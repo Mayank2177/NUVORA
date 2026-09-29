@@ -10,20 +10,22 @@ export class AuthError extends Error {
   }
 }
 
+type StoredUser = AuthUser & { password: string };
+
 const SESSION_KEY = "nuvora:session";
 const USERS_KEY = "nuvora:users";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const read = <T,>(key: string, fallback: T): T => {
+function read<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
   }
-};
+}
 
-type StoredUser = AuthUser & { password: string };
+const toPublic = (u: StoredUser): AuthUser => ({ id: u.id, name: u.name, email: u.email });
 
 function saveSession(user: AuthUser) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));
@@ -39,7 +41,7 @@ export async function signUp(input: { name: string; email: string; password: str
   }
   const user: StoredUser = { id: crypto.randomUUID(), name: input.name, email, password: input.password };
   localStorage.setItem(USERS_KEY, JSON.stringify([...users, user]));
-  const { password: _pw, ...safe } = user;
+  const safe = toPublic(user);
   saveSession(safe);
   return safe;
 }
@@ -50,7 +52,7 @@ export async function signIn(input: { email: string; password: string }): Promis
     (u) => u.email === input.email.toLowerCase() && u.password === input.password,
   );
   if (!match) throw new AuthError("Email or password is incorrect.", "invalid");
-  const { password: _pw, ...safe } = match;
+  const safe = toPublic(match);
   saveSession(safe);
   return safe;
 }
@@ -79,4 +81,10 @@ export function useSession(): AuthUser | null | undefined {
     };
   }, []);
   return user;
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  await wait(800);
+  // Always resolves, so the UI never reveals whether an email has an account.
+  void email;
 }

@@ -123,7 +123,7 @@ function Navbar() {
             </li>
           ))}
         </ul>
-        <div className="hidden md:block"><Button href="#cta">Start a project</Button></div>
+        <div className="hidden md:block"><Button href="/signup">Start a project</Button></div>
         <button className="rounded-lg p-2 md:hidden" onClick={() => setOpen((o) => !o)} aria-label="Toggle menu" aria-expanded={open}>
           {open ? <X size={22} /> : <Menu size={22} />}
         </button>
@@ -140,7 +140,7 @@ function Navbar() {
                   <a href={n.href} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50">{n.label}</a>
                 </li>
               ))}
-              <li className="pt-2"><Button href="#cta">Start a project</Button></li>
+              <li className="pt-2"><Button href="/signup">Start a project</Button></li>
             </ul>
           </motion.div>
         )}
@@ -198,7 +198,7 @@ function Hero() {
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.34, ease: EASE }}
             className="mt-9 flex flex-wrap gap-3"
           >
-            <Button href="#cta">Start a project <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Button>
+            <Button href="/signup">Start a project <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Button>
             <Button href="#solution" variant="ghost">See how it works</Button>
           </motion.div>
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }} className="mt-6 text-sm text-slate-500">
@@ -574,7 +574,7 @@ function CTA() {
             <h2 className="text-3xl font-semibold text-white sm:text-5xl">Start building with continuity.</h2>
             <p className="mt-5 text-lg text-slate-300">Learn it. Build it. Prove it. Keep the context. Create your first project in under two minutes.</p>
             <div className="mt-9 flex flex-wrap justify-center gap-3">
-              <Button href="#top" variant="light">Start a project <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Button>
+              <Button href="/signup" variant="light">Start a project <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Button>
               <a href="#solution" className="inline-flex items-center rounded-full border border-white/25 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/10">See how it works</a>
             </div>
           </div>

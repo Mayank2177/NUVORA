@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/lib/auth";
 
+
 export const STAGES = [
-  "Think", "Learn", "Practice", "Get unstuck", "Prototype", "Build",
-  "Validate", "Document", "Publish", "Demonstrate", "Opportunity", "Contribution",
+  "Idea", "Problem solving", "Research", "Learn", "Practice", "Prototype", "Build",
+  "Validate", "Document", "Publish", "Portfolio", "Demonstrate", "Opportunity", "Contribution",
 ] as const;
 export type Stage = (typeof STAGES)[number];
+
+const LEGACY: Record<string, Stage> = { Think: "Idea", "Get unstuck": "Problem solving" };
 
 export type Project = {
   id: string;
@@ -28,7 +31,8 @@ const activeKey = (uid: string) => `nuvora:active:${uid}`;
 function readList(uid: string): Project[] {
   try {
     const raw = localStorage.getItem(listKey(uid));
-    return raw ? (JSON.parse(raw) as Project[]) : [];
+    if (!raw) return [];
+    return (JSON.parse(raw) as Project[]).map((p) => ({ ...p, stage: (LEGACY[p.stage as string] ?? p.stage) as Stage }));
   } catch {
     return [];
   }

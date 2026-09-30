@@ -19,7 +19,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [user, router]);
 
   // Close the drawer after navigating
-  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+  setOpen(false);
+}, [pathname]);
 
   if (!user) {
     return (
@@ -45,7 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <span className="w-10" />
         </header>
-        <main id="main" className="mx-auto max-w-5xl px-5 py-8 sm:px-8 sm:py-10">
+        <main id="main" className={`mx-auto px-5 py-8 sm:px-8 sm:py-10 ${pathname.startsWith("/build/workspace") ? "max-w-[1400px]" : "max-w-5xl"}`}>
           {children}
         </main>
       </div>

@@ -13,19 +13,21 @@ export type Task = {
 };
 
 /** Entry question, suggested tasks and exit condition for every journey stage. */
-export const STAGE_INFO: Record<Stage, { question: string; tasks: string[]; exit: string }> = {
-  Think: { question: "What am I trying to build, and for whom?", tasks: ["Write the project goal", "List your constraints", "Name your target users"], exit: "Goal and users are written down." },
-  Learn: { question: "What do I need to understand first?", tasks: ["Pick one course or doc to follow", "Write down the key takeaways"], exit: "You can explain the concept in your own words." },
-  Practice: { question: "Can I use it on a small problem?", tasks: ["Complete one practice exercise", "Save your solution"], exit: "One working practice solution is on record." },
-  "Get unstuck": { question: "What is blocking me, and what have I tried?", tasks: ["Log the blocker", "Record what you have tried", "Write down the fix"], exit: "The blocker is resolved and the fix is recorded." },
-  Prototype: { question: "What is the simplest version I can show?", tasks: ["Sketch the main flow", "Record one design decision"], exit: "A prototype or design exists." },
-  Build: { question: "Is the real thing taking shape?", tasks: ["Commit your work regularly", "Open a pull request", "Add tests for the core feature"], exit: "A working feature is merged." },
-  Validate: { question: "Does it actually work?", tasks: ["Run your tests", "Ask someone to try it"], exit: "Tests pass or feedback is attached." },
-  Document: { question: "Can someone else follow what I did?", tasks: ["Capture screenshots", "Write a short README"], exit: "Visuals and notes are attached." },
-  Publish: { question: "What am I ready to share?", tasks: ["Choose which evidence goes public", "Review your project story", "Publish the page"], exit: "The project page is live." },
-  Demonstrate: { question: "How do I show it to others?", tasks: ["Share your project page", "Record a short walkthrough"], exit: "Someone outside the team has seen it." },
-  Opportunity: { question: "Where can this evidence help me?", tasks: ["Pick an application or opportunity", "Adapt your story for it"], exit: "Your evidence is used in an application." },
-  Contribution: { question: "What can I give back?", tasks: ["Share what you learned", "Help someone starting out"], exit: "A contribution is credited to you." },
+export const STAGE_INFO: Record<Stage, { question: string; tasks: string[]; exit: string; tool: string }> = {
+  Idea: { question: "What problem am I solving, and for whom?", tasks: ["Write the problem in one sentence", "Name who has it", "List your constraints"], exit: "The problem and the people are written down.", tool: "Nuvora" },
+  "Problem solving": { question: "Can I break this into parts I can solve?", tasks: ["Split the problem into sub-problems", "Solve one similar puzzle"], exit: "You have a plan you can explain.", tool: "AoPS" },
+  Research: { question: "What already exists, and what can I learn from it?", tasks: ["Read about the problem area", "Find two similar projects", "Note what you'll do differently"], exit: "You can describe the landscape in a paragraph.", tool: "Wikipedia, GitHub" },
+  Learn: { question: "What do I need to understand first?", tasks: ["Pick one course to follow", "Write down the key takeaways"], exit: "You can explain the concept in your own words.", tool: "freeCodeCamp" },
+  Practice: { question: "Can I apply it on a small exercise?", tasks: ["Complete one guided challenge", "Save your solution"], exit: "One working practice solution is on record.", tool: "CodeCrafters" },
+  Prototype: { question: "What is the simplest version I can show?", tasks: ["Sketch the main flow", "Record one design decision"], exit: "A prototype or wireframe exists.", tool: "Balsamiq" },
+  Build: { question: "Is the real thing taking shape?", tasks: ["Commit your work regularly", "Open a pull request", "Add tests for the core feature"], exit: "A working feature is merged.", tool: "DevSwarm" },
+  Validate: { question: "Does it actually work?", tasks: ["Run your tests", "Test your API", "Ask someone to try it"], exit: "Tests pass or feedback is attached.", tool: "GitHub, Postman" },
+  Document: { question: "Can someone else follow what I did?", tasks: ["Capture screenshots", "Write a short README"], exit: "Visuals and notes are attached.", tool: "CleanShot X" },
+  Publish: { question: "What am I ready to share?", tasks: ["Choose which evidence goes public", "Review your project story", "Publish the page"], exit: "The project page is live.", tool: ".xyz domain" },
+  Portfolio: { question: "Is my best work easy to find in one place?", tasks: ["Pin the project on your profile", "Write a short summary"], exit: "The project is in your portfolio.", tool: "GitHub" },
+  Demonstrate: { question: "Can I show what I can do?", tasks: ["Walk someone through the project", "Practise explaining your decisions"], exit: "Someone outside the team has seen it.", tool: "InterviewBuddy" },
+  Opportunity: { question: "Where can this evidence help me?", tasks: ["Pick a role or opportunity", "Adapt your story for it"], exit: "Your evidence is used in an application.", tool: "LinkedIn, Wellfound" },
+  Contribution: { question: "What can I give back?", tasks: ["Share what you learned", "Help someone starting out"], exit: "A contribution is credited to you.", tool: "Open source, community" },
 };
 
 const EVENT = "nuvora:tasks";

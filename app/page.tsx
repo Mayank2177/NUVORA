@@ -1,4 +1,6 @@
 "use client";
+import { STAGES as STAGE_NAMES } from "@/lib/store";
+import { STAGE_INFO } from "@/lib/tasks";
 /* eslint-disable @next/next/no-img-element */
 
 import { useState, type ReactNode } from "react";
@@ -32,7 +34,9 @@ const NAV = [
   { label: "Evidence", href: "#evidence" },
   { label: "Integrations", href: "#integrations" },
 ];
-
+const STAGES = STAGE_NAMES.map((name) => ({
+  name, q: STAGE_INFO[name].question, tasks: STAGE_INFO[name].tasks, exit: STAGE_INFO[name].exit,
+}));
 /* ---------- small building blocks ---------- */
 
 function Reveal({ children, delay = 0, className = "" }: { children: ReactNode; delay?: number; className?: string }) {
@@ -123,7 +127,7 @@ function Navbar() {
             </li>
           ))}
         </ul>
-        <div className="hidden md:block"><Button href="/signup">Start a project</Button></div>
+        <div className="hidden md:block"><Button href="/login">Start a project</Button></div>
         <button className="rounded-lg p-2 md:hidden" onClick={() => setOpen((o) => !o)} aria-label="Toggle menu" aria-expanded={open}>
           {open ? <X size={22} /> : <Menu size={22} />}
         </button>
@@ -336,23 +340,8 @@ function Solution() {
 
 /* ---------- journey ---------- */
 
-const STAGES = [
-  { name: "Think", q: "What am I trying to build, and for whom?", tasks: ["Write the goal", "List constraints", "Name your users"], exit: "Goal and users are written down." },
-  { name: "Learn", q: "What do I need to understand first?", tasks: ["Attach a course or doc", "Note key takeaways"], exit: "You can explain the concept in your own words." },
-  { name: "Practice", q: "Can I use it on a small problem?", tasks: ["Complete an exercise", "Link the solution"], exit: "One working practice solution is attached." },
-  { name: "Get unstuck", q: "What is blocking me, and what have I tried?", tasks: ["Log the blocker", "Record attempts", "Attach the fix"], exit: "The blocker is resolved with a solution on record." },
-  { name: "Prototype", q: "What is the simplest version I can show?", tasks: ["Sketch the flow", "Record the design decision"], exit: "A prototype or design file exists." },
-  { name: "Build", q: "Is the real thing taking shape?", tasks: ["Commit regularly", "Open pull requests", "Track AI assistance"], exit: "A working feature is merged." },
-  { name: "Validate", q: "Does it actually work?", tasks: ["Run tests", "Get feedback"], exit: "Tests pass or feedback is attached." },
-  { name: "Document", q: "Can someone else follow what I did?", tasks: ["Capture screenshots", "Write a short README"], exit: "Visuals and notes are attached." },
-  { name: "Publish", q: "What am I ready to share?", tasks: ["Pick public items", "Scan for secrets", "Generate the story"], exit: "The project page is live." },
-  { name: "Demonstrate", q: "How do I show it to others?", tasks: ["Share the page", "Record a walkthrough"], exit: "Someone outside the team has seen it." },
-  { name: "Opportunity", q: "Where can this evidence help me?", tasks: ["Export for a job or grant", "Track responses"], exit: "Evidence is used in an application." },
-  { name: "Contribution", q: "What can I give back?", tasks: ["Open-source a piece", "Help a beginner"], exit: "A contribution is credited to you." },
-];
-
 function Journey() {
-  const [active, setActive] = useState(5);
+  const [active, setActive] = useState(STAGE_NAMES.indexOf("Build"));
   const s = STAGES[active];
   return (
     <section id="journey" className="mx-auto max-w-6xl px-5 py-24 sm:py-32">

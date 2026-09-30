@@ -12,7 +12,9 @@ export default function PublicProjectPage() {
   const { slug } = useParams<{ slug: string }>();
   const [snap, setSnap] = useState<Snapshot | null | undefined>(undefined);
 
-  useEffect(() => setSnap(getSnapshot(slug)), [slug]);
+  useEffect(() => {
+  setSnap(getSnapshot(slug));
+}, [slug]);
 
   return (
     <div className="min-h-screen bg-slate-50/60">

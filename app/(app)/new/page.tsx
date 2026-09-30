@@ -69,7 +69,7 @@ function Preview({ f }: { f: Fields }) {
 export default function NewProjectPage() {
   const router = useRouter();
   const { projects, create } = useProjects();
-  const [f, setF] = useState<Fields>({ name: "", goal: "", users: "", constraints: "", stage: "Think", repo: "" });
+  const [f, setF] = useState<Fields>({ name: "", goal: "", users: "", constraints: "", stage: "Idea", repo: "" });
   const [errors, setErrors] = useState<Errors>({});
   const [repo, setRepo] = useState<Repo>({ status: "idle" });
   const [done, setDone] = useState(false);

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, Bot, Check, FlaskConical, GitBranch, GitCommit, GitPullRequest, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, Bot, Check, FlaskConical, GitBranch, GitCommit, GitPullRequest, Loader2, RefreshCw, Code2, ArrowRight } from "lucide-react";
 import { useProjects } from "@/lib/store";
 import { PROV_STYLE, TYPE_ICON, useProjectData, type Evidence } from "@/lib/data";
 
@@ -184,9 +184,18 @@ export default function BuildPage() {
         ].map((s, i) => (
           <motion.div key={s.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.05, duration: 0.5, ease: EASE }}
             className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+              <Link href="/build/workspace" className="group flex flex-wrap items-center gap-4 rounded-3xl bg-slate-900 p-6 text-white transition-colors hover:bg-slate-800">
+              <span className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Code2 size={20} /></span>
+              <div className="min-w-0 flex-1 basis-56">
+                <p className="font-semibold">Open the code workspace</p>
+                <p className="text-sm text-slate-300">Write code, run tests and get AI help. Everything you do is saved as evidence.</p>
+              </div>
+              <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+            </Link>
             <div className="flex items-center justify-between text-slate-500"><p className="text-sm">{s.label}</p><s.icon size={16} /></div>
             <p className="mt-2 text-3xl font-semibold">{s.n}</p>
           </motion.div>
+          
         ))}
       </div>
 

@@ -63,7 +63,7 @@ const daysAgo = (d: number, h = 0) => new Date(Date.now() - d * 86_400_000 - h *
 /** MOCK: stands in for real GitHub activity until an API is connected. */
 function seed(p: Pick<Project, "repo">): ProjectData {
   const ev: Evidence[] = [
-    { id: uid(), type: "Decision", text: "Defined the project goal and target users", date: daysAgo(6), source: "Nuvora", provenance: "Human", stage: "Think" },
+    { id: uid(), type: "Decision", text: "Defined the project goal and target users", date: daysAgo(6), source: "Nuvora", provenance: "Human", stage: "Idea" },
     { id: uid(), type: "Learning", text: "Read the documentation for the core framework", date: daysAgo(5), source: "Browser attach", provenance: "External", stage: "Learn" },
   ];
   const blockers: Blocker[] = [];
@@ -71,7 +71,7 @@ function seed(p: Pick<Project, "repo">): ProjectData {
     ev.push(
       { id: uid(), type: "Commit", text: "Initial project setup", date: daysAgo(4), source: p.repo, provenance: "Human", stage: "Build" },
       { id: uid(), type: "Commit", text: "Add authentication flow", date: daysAgo(3), source: p.repo, provenance: "Human", stage: "Build" },
-      { id: uid(), type: "AI session", text: "Debugged environment configuration", date: daysAgo(2, 3), source: "Claude Code", provenance: "AI-assisted", stage: "Get unstuck" },
+      { id: uid(), type: "AI session", text: "Debugged environment configuration", date: daysAgo(2, 3), source: "Claude Code", provenance: "AI-assisted", stage: "Build" },
       { id: uid(), type: "Pull request", text: "Merge authentication feature", date: daysAgo(1), source: p.repo, provenance: "Collaborator", stage: "Build" },
       { id: uid(), type: "Commit", text: "Build dashboard layout", date: daysAgo(0, 2), source: p.repo, provenance: "Human", stage: "Build" },
     );

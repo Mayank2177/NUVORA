@@ -58,7 +58,9 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
   const [copied, setCopied] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
 
-  useEffect(() => saveDraft(pid, draft), [pid, draft]);
+  useEffect(() => {
+  saveDraft(pid, draft);
+}, [pid, draft]);
 
   const publicEv = useMemo(() => data.evidence.filter((e) => e.public), [data.evidence]);
   const resolved = useMemo(() => (draft.includeBlockers ? data.blockers.filter((b) => b.status === "resolved") : []), [data.blockers, draft.includeBlockers]);

@@ -13,7 +13,7 @@ export class AuthError extends Error {
 type StoredUser = AuthUser & { password: string };
 
 const SESSION_KEY = "nuvora:session";
-const USERS_KEY = "nuvora:users";
+export const USERS_KEY = "nuvora:users";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function read<T>(key: string, fallback: T): T {
@@ -87,4 +87,40 @@ export async function requestPasswordReset(email: string): Promise<void> {
   await wait(800);
   // Always resolves, so the UI never reveals whether an email has an account.
   void email;
+}
+
+/** True for accounts created with email and password (GitHub demo accounts have none). */
+export const hasPassword = (id: string) => read<StoredUser[]>(USERS_KEY, []).some((u) => u.id === id);
+
+export async function updateProfile(input: { name: string; email: string }): Promise<AuthUser> {
+  await wait(500);
+  const session = read<AuthUser | null>(SESSION_KEY, null);
+  if (!session) throw new AuthError("You're signed out. Log in again.");
+  const users = read<StoredUser[]>(USERS_KEY, []);
+  const email = input.email.toLowerCase();
+  const mine = users.find((u) => u.id === session.id);
+
+  if (!mine) {
+    // GitHub accounts: the name can change, the email is managed by GitHub
+    const safe = { ...session, name: input.name };
+    saveSession(safe);
+    return safe;
+  }
+  if (email === "taken@test.com" || users.some((u) => u.id !== mine.id && u.email === email)) {
+    throw new AuthError("Another account already uses this email.", "email-taken");
+  }
+  localStorage.setItem(USERS_KEY, JSON.stringify(users.map((u) => (u.id === mine.id ? { ...u, name: input.name, email } : u))));
+  const safe = { ...toPublic(mine), name: input.name, email };
+  saveSession(safe);
+  return safe;
+}
+
+export async function changePassword(input: { current: string; next: string }): Promise<void> {
+  await wait(600);
+  const session = read<AuthUser | null>(SESSION_KEY, null);
+  const users = read<StoredUser[]>(USERS_KEY, []);
+  const me = users.find((u) => u.id === session?.id);
+  if (!me) throw new AuthError("This account signs in with GitHub, so it has no password to change.");
+  if (me.password !== input.current) throw new AuthError("Your current password is incorrect.", "invalid");
+  localStorage.setItem(USERS_KEY, JSON.stringify(users.map((u) => (u.id === me.id ? { ...u, password: input.next } : u))));
 }

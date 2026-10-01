@@ -84,6 +84,20 @@ export function useProjects() {
     [uid],
   );
 
+    const remove = useCallback(
+    (id: string) => {
+      if (!uid) return;
+      const next = readList(uid).filter((p) => p.id !== id);
+      localStorage.setItem(listKey(uid), JSON.stringify(next));
+      if (localStorage.getItem(activeKey(uid)) === id) {
+        if (next[0]) localStorage.setItem(activeKey(uid), next[0].id);
+        else localStorage.removeItem(activeKey(uid));
+      }
+      window.dispatchEvent(new Event(EVENT));
+    },
+    [uid],
+  );
+
   const setActive = useCallback(
     (id: string) => {
       if (!uid) return;
@@ -98,6 +112,7 @@ export function useProjects() {
     active: state.projects.find((p) => p.id === state.activeId) ?? null,
     create,
     setActive,
-    update, // <- add this
+    update,
+    remove, // <- add this
   };
 }

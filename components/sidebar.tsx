@@ -5,8 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  AlertTriangle, Check, ChevronsUpDown, Hammer, Layers, LayoutDashboard, ListChecks,
-  Lock, LogOut, PenTool, Plus, Rocket, ShieldCheck, X,
+  AlertTriangle, Check, ChevronsUpDown, Hammer, Layers, LayoutDashboard, LayoutGrid, ListChecks,
+  Lock, LogOut, PenTool, Plus, Rocket, Settings, ShieldCheck, X,
 } from "lucide-react";
 import { signOut, useSession } from "@/lib/auth";
 import { useProjects } from "@/lib/store";
@@ -30,6 +30,7 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
 
   const initials = (user?.name ?? "?").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   const newActive = pathname === "/new";
+  const projectsActive = pathname.startsWith("/projects");
 
   return (
     <div className="flex h-full flex-col">
@@ -86,6 +87,14 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
                     <Plus size={15} /> New project
                   </Link>
                 </li>
+                <li>
+                  <Link
+                    href="/projects" onClick={() => { setMenu(false); onNavigate?.(); }}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    <LayoutGrid size={15} /> Manage projects
+                  </Link>
+                </li>
               </motion.ul>
             </>
           )}
@@ -125,18 +134,39 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
           }`}>
           <Plus size={18} /> New project
         </Link>
+
+        <Link href="/projects" onClick={onNavigate} aria-current={projectsActive ? "page" : undefined}
+          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+            projectsActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:text-slate-900"
+          }`}>
+          <LayoutGrid size={18} /> All projects
+        </Link>
       </nav>
 
-      {/* User */}
+      {/* User: the profile area opens Settings, logout stays a separate button */}
       <div className="border-t border-slate-100 p-3">
-        <div className="flex items-center gap-3 rounded-xl p-2">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-semibold text-white">{initials}</span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">{user?.name}</p>
-            <p className="truncate text-xs text-slate-500">{user?.email}</p>
-          </div>
-          <button aria-label="Log out" onClick={() => { signOut(); router.push("/"); }}
-            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900">
+        <div className="flex items-center gap-1">
+          <Link
+            href="/settings"
+            onClick={onNavigate}
+            aria-label="Open settings"
+            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+            className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 transition-colors ${
+              pathname.startsWith("/settings") ? "bg-brand-50" : "hover:bg-slate-50"
+            }`}
+          >
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-semibold text-white">{initials}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold">{user?.name}</span>
+              <span className="block truncate text-xs text-slate-500">{user?.email}</span>
+            </span>
+            <Settings size={16} className="shrink-0 text-slate-400" />
+          </Link>
+          <button
+            aria-label="Log out"
+            onClick={() => { signOut(); router.push("/"); }}
+            className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+          >
             <LogOut size={17} />
           </button>
         </div>
@@ -148,7 +178,9 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
 export function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
   useEffect(() => {
     if (!mobileOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mobileOpen, onClose]);

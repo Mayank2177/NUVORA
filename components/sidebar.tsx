@@ -144,23 +144,32 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
       </nav>
 
       {/* User: the profile area opens Settings, logout stays a separate button */}
+            {/* User: profile opens /profile, Settings and Log out are separate buttons */}
       <div className="border-t border-slate-100 p-3">
         <div className="flex items-center gap-1">
           <Link
-            href="/settings"
+            href="/profile"
             onClick={onNavigate}
-            aria-label="Open settings"
-            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+            aria-label="Open your profile"
+            aria-current={pathname.startsWith("/profile") ? "page" : undefined}
             className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 transition-colors ${
-              pathname.startsWith("/settings") ? "bg-brand-50" : "hover:bg-slate-50"
+              pathname.startsWith("/profile") ? "bg-brand-50" : "hover:bg-slate-50"
             }`}
           >
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-semibold text-white">{initials}</span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold">{user?.name}</span>
-              <span className="block truncate text-xs text-slate-500">{user?.email}</span>
+              <span className="block truncate text-xs text-slate-500">View profile</span>
             </span>
-            <Settings size={16} className="shrink-0 text-slate-400" />
+          </Link>
+          <Link
+            href="/settings"
+            onClick={onNavigate}
+            aria-label="Settings"
+            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+            className={`rounded-lg p-2 transition-colors ${pathname.startsWith("/settings") ? "bg-brand-50 text-brand-700" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}
+          >
+            <Settings size={17} />
           </Link>
           <button
             aria-label="Log out"

@@ -33,6 +33,7 @@ const NAV = [
   { label: "Journey", href: "#journey" },
   { label: "Evidence", href: "#evidence" },
   { label: "Integrations", href: "#integrations" },
+  { label: "Pricing", href: "/pricing" },
 ];
 const STAGES = STAGE_NAMES.map((name) => ({
   name, q: STAGE_INFO[name].question, tasks: STAGE_INFO[name].tasks, exit: STAGE_INFO[name].exit,

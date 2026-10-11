@@ -5,14 +5,20 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  AlertTriangle, Check, ChevronsUpDown, Hammer, Layers, LayoutDashboard, LayoutGrid, ListChecks,
-  Lock, LogOut, PenTool, Plus, Rocket, Settings, ShieldCheck, X,
+  AlertTriangle, Briefcase, Check, ChevronsUpDown, Gauge, Hammer, Home, Layers, LayoutDashboard, LayoutGrid,
+  ListChecks, Lock, LogOut, PenTool, Plus, Rocket, Settings, ShieldCheck, X, type LucideIcon,
 } from "lucide-react";
 import { signOut, useSession } from "@/lib/auth";
 import { useProjects } from "@/lib/store";
+import { useOffers } from "@/lib/offers";
 
-const NAV = [
-  { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
+type Item = { label: string; href: string; icon: LucideIcon };
+
+const HOME: Item = { label: "Home", href: "/dashboard", icon: Home };
+const CAPABILITY: Item = { label: "Capability", href: "/capability", icon: Gauge };
+const OPPORTUNITIES: Item = { label: "Opportunities", href: "/opportunities", icon: Briefcase };
+const NAV: Item[] = [
+  { label: "Overview", href: "/overview", icon: LayoutDashboard },
   { label: "Tasks", href: "/tasks", icon: ListChecks },
   { label: "Design", href: "/design", icon: PenTool },
   { label: "Build", href: "/build", icon: Hammer },
@@ -26,15 +32,43 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
   const router = useRouter();
   const user = useSession();
   const { projects, active, setActive } = useProjects();
+  const offers = useOffers();
   const [menu, setMenu] = useState(false);
 
   const initials = (user?.name ?? "?").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   const newActive = pathname === "/new";
   const projectsActive = pathname.startsWith("/projects");
+  const invites =
+    user && offers ? offers.filter((o) => o.devId === user.id && o.origin === "invite" && o.status === "pending").length : 0;
+
+  const row = ({ label, href, icon: Icon }: Item, enabled: boolean, badge = 0) => {
+    if (!enabled) {
+      return (
+        <div key={href} aria-disabled="true" title="Create a project first"
+          className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-300">
+          <Icon size={18} /> {label} <Lock size={13} className="ml-auto" />
+        </div>
+      );
+    }
+    const isActive = pathname === href || pathname.startsWith(`${href}/`);
+    return (
+      <Link key={href} href={href} onClick={onNavigate} aria-current={isActive ? "page" : undefined} className="relative block rounded-xl px-3 py-2.5 text-sm font-medium">
+        {isActive && <motion.span layoutId={`nav-${id}`} className="absolute inset-0 rounded-xl bg-brand-50" transition={{ type: "spring", stiffness: 420, damping: 34 }} />}
+        <span className={`relative flex items-center gap-3 transition-colors ${isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900"}`}>
+          <Icon size={18} /> {label}
+          {badge > 0 && (
+            <span className="ml-auto rounded-full bg-brand-600 px-2 py-0.5 text-xs font-semibold text-white" aria-label={`${badge} pending invitation${badge === 1 ? "" : "s"}`}>
+              {badge}
+            </span>
+          )}
+        </span>
+      </Link>
+    );
+  };
 
   return (
     <div className="flex h-full flex-col">
-      <Link href="/" onClick={onNavigate} className="flex items-center gap-2.5 px-6 py-5" aria-label="Nuvora home">
+      <Link href="/dashboard" onClick={onNavigate} className="flex items-center gap-2.5 px-6 py-5" aria-label="Nuvora dashboard">
         <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-500/30">
           <Layers size={17} strokeWidth={2.4} />
         </span>
@@ -80,18 +114,12 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
                   </li>
                 ))}
                 <li className={projects.length ? "mt-1 border-t border-slate-100 pt-1" : ""}>
-                  <Link
-                    href="/new" onClick={() => { setMenu(false); onNavigate?.(); }}
-                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50"
-                  >
+                  <Link href="/new" onClick={() => { setMenu(false); onNavigate?.(); }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50">
                     <Plus size={15} /> New project
                   </Link>
                 </li>
                 <li>
-                  <Link
-                    href="/projects" onClick={() => { setMenu(false); onNavigate?.(); }}
-                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-                  >
+                  <Link href="/projects" onClick={() => { setMenu(false); onNavigate?.(); }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
                     <LayoutGrid size={15} /> Manage projects
                   </Link>
                 </li>
@@ -102,59 +130,33 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
       </div>
 
       {/* Navigation */}
-      <nav aria-label="Project" className="mt-6 flex-1 space-y-1 overflow-y-auto px-3">
-        <p className="px-3 pb-1 text-xs font-medium text-slate-400">Workspace</p>
-        {NAV.map(({ label, href, icon: Icon }) => {
-          if (!active) {
-            return (
-              <div key={href} aria-disabled="true" title="Create a project first"
-                className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-300">
-                <Icon size={18} /> {label} <Lock size={13} className="ml-auto" />
-              </div>
-            );
-          }
-          const isActive = pathname === href || pathname.startsWith(`${href}/`);
-          return (
-            <Link key={href} href={href} onClick={onNavigate} aria-current={isActive ? "page" : undefined}
-              className="relative block rounded-xl px-3 py-2.5 text-sm font-medium">
-              {isActive && (
-                <motion.span layoutId={`nav-${id}`} className="absolute inset-0 rounded-xl bg-brand-50"
-                  transition={{ type: "spring", stiffness: 420, damping: 34 }} />
-              )}
-              <span className={`relative flex items-center gap-3 transition-colors ${isActive ? "text-brand-700" : "text-slate-600 hover:text-slate-900"}`}>
-                <Icon size={18} /> {label}
-              </span>
-            </Link>
-          );
-        })}
+      <nav aria-label="Main" className="mt-6 flex-1 space-y-1 overflow-y-auto px-3">
+        {row(HOME, true)}
+        {row(CAPABILITY, true)}
+        {row(OPPORTUNITIES, true, invites)}
+
+        <p className="px-3 pb-1 pt-4 text-xs font-medium text-slate-400">Current project</p>
+        {NAV.map((item) => row(item, !!active))}
 
         <Link href="/new" onClick={onNavigate} aria-current={newActive ? "page" : undefined}
-          className={`mt-4 flex items-center gap-3 rounded-xl border border-dashed px-3 py-2.5 text-sm font-medium transition-colors ${
+          className={`mt-3 flex items-center gap-3 rounded-xl border border-dashed px-3 py-2.5 text-sm font-medium transition-colors ${
             newActive ? "border-brand-300 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900"
           }`}>
           <Plus size={18} /> New project
         </Link>
-
         <Link href="/projects" onClick={onNavigate} aria-current={projectsActive ? "page" : undefined}
-          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-            projectsActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:text-slate-900"
-          }`}>
+          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${projectsActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:text-slate-900"}`}>
           <LayoutGrid size={18} /> All projects
         </Link>
       </nav>
 
-      {/* User: the profile area opens Settings, logout stays a separate button */}
-            {/* User: profile opens /profile, Settings and Log out are separate buttons */}
+      {/* User: profile opens /profile, Settings and Log out are separate buttons */}
       <div className="border-t border-slate-100 p-3">
         <div className="flex items-center gap-1">
           <Link
-            href="/profile"
-            onClick={onNavigate}
-            aria-label="Open your profile"
+            href="/profile" onClick={onNavigate} aria-label="Open your profile"
             aria-current={pathname.startsWith("/profile") ? "page" : undefined}
-            className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 transition-colors ${
-              pathname.startsWith("/profile") ? "bg-brand-50" : "hover:bg-slate-50"
-            }`}
+            className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 transition-colors ${pathname.startsWith("/profile") ? "bg-brand-50" : "hover:bg-slate-50"}`}
           >
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-semibold text-white">{initials}</span>
             <span className="min-w-0 flex-1">
@@ -163,9 +165,7 @@ function Content({ id, onNavigate }: { id: string; onNavigate?: () => void }) {
             </span>
           </Link>
           <Link
-            href="/settings"
-            onClick={onNavigate}
-            aria-label="Settings"
+            href="/settings" onClick={onNavigate} aria-label="Settings"
             aria-current={pathname.startsWith("/settings") ? "page" : undefined}
             className={`rounded-lg p-2 transition-colors ${pathname.startsWith("/settings") ? "bg-brand-50 text-brand-700" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}
           >

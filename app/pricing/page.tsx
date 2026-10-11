@@ -3,7 +3,7 @@ import { PricingView } from "@/components/pricing-view";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Start free. Upgrade when you have more projects and pages to keep connected.",
+  description: "Plans for developers building proof and employers getting real work done. Paying never changes a score.",
 };
 
 export default function PricingPage() {

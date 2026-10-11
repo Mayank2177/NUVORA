@@ -7,16 +7,12 @@ const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", 
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
-  title: {
-    default: "Nuvora: keep your work connected from idea to opportunity",
-    template: "%s · Nuvora",
-  },
-  description:
-    "Nuvora connects what you learn, build, solve, document and publish, so your context and evidence never disappear between the tools you use.",
+    title: { default: "Nuvora: get hired for what you've built", template: "%s · Nuvora" },
+  description: "Nuvora turns real project evidence into a capability profile, matches it to real business tasks, and adds every completed task back as proof.",
   keywords: ["project evidence", "developer portfolio", "project story", "learning to building", "Nuvora"],
-  openGraph: {
-    title: "Nuvora: your work shouldn't disappear between tools",
-    description: "Turn scattered activity into connected context, evidence and a story you can publish.",
+    openGraph: {
+    title: "Nuvora: get hired for what you've built",
+    description: "Evidence-backed capability profiles, matched to real business tasks.",
     type: "website",
     siteName: "Nuvora",
   },

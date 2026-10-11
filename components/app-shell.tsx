@@ -16,6 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Frontend-only route guard
   useEffect(() => {
     if (user === null) router.replace("/login");
+    else if (user?.role === "employer") router.replace("/employer");
   }, [user, router]);
 
   // Close the drawer after navigating

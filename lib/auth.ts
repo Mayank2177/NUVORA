@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-export type AuthUser = { id: string; name: string; email: string };
+export type Role = "developer" | "employer";
+export type AuthUser = { id: string; name: string; email: string; role: Role };
 
 export class AuthError extends Error {
   constructor(message: string, public code: "email-taken" | "invalid" | "network" | "unknown" = "unknown") {
@@ -25,24 +26,26 @@ function read<T>(key: string, fallback: T): T {
   }
 }
 
-const toPublic = (u: StoredUser): AuthUser => ({ id: u.id, name: u.name, email: u.email });
+/** Accounts created before roles existed are developers. */
+const roleOf = (r: unknown): Role => (r === "employer" ? "employer" : "developer");
+const toPublic = (u: StoredUser): AuthUser => ({ id: u.id, name: u.name, email: u.email, role: roleOf(u.role) });
 
-function saveSession(user: AuthUser) {
+export function startSession(user: AuthUser) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));
   window.dispatchEvent(new Event("nuvora:auth"));
 }
 
-export async function signUp(input: { name: string; email: string; password: string }): Promise<AuthUser> {
+export async function signUp(input: { name: string; email: string; password: string; role: Role }): Promise<AuthUser> {
   await wait(800);
   const users = read<StoredUser[]>(USERS_KEY, []);
   const email = input.email.toLowerCase();
   if (email === "taken@test.com" || users.some((u) => u.email === email)) {
     throw new AuthError("An account with this email already exists. Log in instead.", "email-taken");
   }
-  const user: StoredUser = { id: crypto.randomUUID(), name: input.name, email, password: input.password };
+  const user: StoredUser = { id: crypto.randomUUID(), name: input.name, email, password: input.password, role: input.role };
   localStorage.setItem(USERS_KEY, JSON.stringify([...users, user]));
   const safe = toPublic(user);
-  saveSession(safe);
+  startSession(safe);
   return safe;
 }
 
@@ -53,13 +56,16 @@ export async function signIn(input: { email: string; password: string }): Promis
   );
   if (!match) throw new AuthError("Email or password is incorrect.", "invalid");
   const safe = toPublic(match);
-  saveSession(safe);
+  startSession(safe);
   return safe;
 }
 
-export async function signInWithGitHub(): Promise<void> {
+/** GitHub sign-in is for developers. */
+export async function signInWithGitHub(): Promise<AuthUser> {
   await wait(700);
-  saveSession({ id: "gh-demo", name: "Demo Developer", email: "demo@github.dev" });
+  const user: AuthUser = { id: "gh-demo", name: "Demo Developer", email: "demo@github.dev", role: "developer" };
+  startSession(user);
+  return user;
 }
 
 export function signOut() {
@@ -71,7 +77,10 @@ export function signOut() {
 export function useSession(): AuthUser | null | undefined {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   useEffect(() => {
-    const sync = () => setUser(read<AuthUser | null>(SESSION_KEY, null));
+    const sync = () => {
+      const s = read<AuthUser | null>(SESSION_KEY, null);
+      setUser(s ? { ...s, role: roleOf(s.role) } : null);
+    };
     sync();
     window.addEventListener("nuvora:auth", sync);
     window.addEventListener("storage", sync);
@@ -89,7 +98,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
   void email;
 }
 
-/** True for accounts created with email and password (GitHub demo accounts have none). */
+/** True for accounts created with email and password (GitHub and demo accounts have none). */
 export const hasPassword = (id: string) => read<StoredUser[]>(USERS_KEY, []).some((u) => u.id === id);
 
 export async function updateProfile(input: { name: string; email: string }): Promise<AuthUser> {
@@ -101,17 +110,17 @@ export async function updateProfile(input: { name: string; email: string }): Pro
   const mine = users.find((u) => u.id === session.id);
 
   if (!mine) {
-    // GitHub accounts: the name can change, the email is managed by GitHub
-    const safe = { ...session, name: input.name };
-    saveSession(safe);
+    // GitHub and demo accounts: the name can change, the email is fixed
+    const safe: AuthUser = { ...session, role: roleOf(session.role), name: input.name };
+    startSession(safe);
     return safe;
   }
   if (email === "taken@test.com" || users.some((u) => u.id !== mine.id && u.email === email)) {
     throw new AuthError("Another account already uses this email.", "email-taken");
   }
   localStorage.setItem(USERS_KEY, JSON.stringify(users.map((u) => (u.id === mine.id ? { ...u, name: input.name, email } : u))));
-  const safe = { ...toPublic(mine), name: input.name, email };
-  saveSession(safe);
+  const safe: AuthUser = { ...toPublic(mine), name: input.name, email };
+  startSession(safe);
   return safe;
 }
 

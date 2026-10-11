@@ -1,77 +1,55 @@
 "use client";
-import { STAGES as STAGE_NAMES } from "@/lib/store";
-import { STAGE_INFO } from "@/lib/tasks";
 /* eslint-disable @next/next/no-img-element */
 
 import { useState, type ReactNode } from "react";
-import { AnimatePresence, motion, useScroll, useSpring } from "framer-motion";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion, useScroll, useSpring } from "framer-motion";
 import {
-  AlertTriangle, ArrowRight, BookOpen, Bot, Brain, Camera, Check, Compass, FileText,
-  GitCommit, Globe, Layers, Lightbulb, Link2, Lock, Menu, ShieldCheck, Sparkles, X,
-  type LucideIcon,
+  ArrowRight, BadgeCheck, Bot, ClipboardCheck, EyeOff, FileSearch, GitCommit, Layers, Lock, Menu, ShieldCheck,
+  Sparkles, Target, Users, X, Check, Code2, Briefcase, type LucideIcon,
 } from "lucide-react";
-
-/* ---------- constants ---------- */
+import { useSession } from "@/lib/auth";
+import { homeFor } from "@/lib/market";
+import { DemoLogin } from "@/components/auth-ui";
+import { LEVEL_BADGE, LEVEL_BAR, LEVEL_LABEL, LEVEL_RULE } from "@/lib/capability";
+import { PROV_STYLE, type Provenance } from "@/lib/data";
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
-const U = (id: string, w = 1400) =>
-  `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=${w}&q=80`;
-
+const U = (id: string, w = 1400) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=${w}&q=80`;
 const IMG = {
-  hero: U("1461749280684-dccba630e2f6"),
-  problem: U("1484480974693-6ca0a78fb36b"),
-  solution: U("1522071820081-009f0129c71c"),
-  journey: U("1531482615713-2afd69097998"),
-  evidence: U("1551288049-bebda4e38f71"),
-  story: U("1498050108023-c5249f4df085"),
-  cta: U("1519389950473-47ba0277781c"),
+  hero: U("1461749280684-dccba630e2f6"), problem: U("1484480974693-6ca0a78fb36b"),
+  dev: U("1498050108023-c5249f4df085"), emp: U("1522071820081-009f0129c71c"), cta: U("1519389950473-47ba0277781c"),
 };
 
 const NAV = [
-  { label: "Problem", href: "#problem" },
-  { label: "How it works", href: "#solution" },
-  { label: "Journey", href: "#journey" },
-  { label: "Evidence", href: "#evidence" },
-  { label: "Integrations", href: "#integrations" },
-  { label: "Pricing", href: "/pricing" },
+  { label: "How it works", href: "#loop" }, { label: "For developers", href: "#developers" },
+  { label: "For employers", href: "#employers" }, { label: "Evidence", href: "#evidence" }, { label: "Pricing", href: "/pricing" },
 ];
-const STAGES = STAGE_NAMES.map((name) => ({
-  name, q: STAGE_INFO[name].question, tasks: STAGE_INFO[name].tasks, exit: STAGE_INFO[name].exit,
-}));
-/* ---------- small building blocks ---------- */
+
+/* ---------- building blocks ---------- */
 
 function Reveal({ children, delay = 0, className = "" }: { children: ReactNode; delay?: number; className?: string }) {
+  const reduce = useReducedMotion();
   return (
-    <motion.div
-      className={className}
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-70px" }}
-      transition={{ duration: 0.65, delay, ease: EASE }}
-    >
+    <motion.div className={className} initial={reduce ? false : { opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-70px" }} transition={{ duration: 0.65, delay, ease: EASE }}>
       {children}
     </motion.div>
   );
 }
 
 function Photo({ src, alt, className = "" }: { src: string; alt: string; className?: string }) {
+  const reduce = useReducedMotion();
   return (
     <div className={`overflow-hidden rounded-3xl bg-slate-100 ${className}`}>
-      <motion.img
-        src={src}
-        alt={alt}
-        loading="lazy"
-        className="h-full w-full object-cover"
-        initial={{ scale: 1.08 }}
-        whileInView={{ scale: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 1.4, ease: EASE }}
-      />
+      <motion.img src={src} alt={alt} loading="lazy" className="h-full w-full object-cover" initial={reduce ? false : { scale: 1.08 }}
+        whileInView={{ scale: 1 }} viewport={{ once: true }} transition={{ duration: 1.4, ease: EASE }} />
     </div>
   );
 }
 
-function SectionHead({ title, sub, center = false }: { title: string; sub: string; center?: boolean }) {
+function Head({ title, sub, center = false }: { title: string; sub: string; center?: boolean }) {
   return (
     <Reveal className={center ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
       <h2 className="text-3xl font-semibold leading-tight sm:text-4xl md:text-[2.75rem]">{title}</h2>
@@ -80,32 +58,25 @@ function SectionHead({ title, sub, center = false }: { title: string; sub: strin
   );
 }
 
-function Button({ href, children, variant = "primary" }: { href: string; children: ReactNode; variant?: "primary" | "ghost" | "light" }) {
+function Btn({ href, children, variant = "primary" }: { href: string; children: ReactNode; variant?: "primary" | "ghost" | "light" }) {
   const styles = {
     primary: "bg-slate-900 text-white hover:bg-brand-600 shadow-lg shadow-slate-900/10",
     ghost: "border border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
     light: "bg-white text-slate-900 hover:bg-brand-50",
   }[variant];
   return (
-    <motion.a
-      href={href}
-      whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.97 }}
-      className={`group inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-colors ${styles}`}
-    >
-      {children}
-    </motion.a>
+    <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }} className="inline-block">
+      <Link href={href} className={`group inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-colors ${styles}`}>{children}</Link>
+    </motion.div>
   );
 }
 
 function Logo({ light = false }: { light?: boolean }) {
   return (
-    <a href="#top" className="flex items-center gap-2.5" aria-label="Nuvora home">
-      <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-500/30">
-        <Layers size={17} strokeWidth={2.4} />
-      </span>
-      <span className={`text-lg font-bold tracking-tight ${light ? "text-white" : "text-slate-900"}`}>Nuvora</span>
-    </a>
+    <Link href="/" className="flex items-center gap-2.5" aria-label="Nuvora home">
+      <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-500/30"><Layers size={17} strokeWidth={2.4} /></span>
+      <span className={`text-lg font-bold tracking-tight ${light ? "text-white" : ""}`}>Nuvora</span>
+    </Link>
   );
 }
 
@@ -113,39 +84,32 @@ function Logo({ light = false }: { light?: boolean }) {
 
 function Navbar() {
   const [open, setOpen] = useState(false);
+  const user = useSession();
   const { scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 24 });
+  const auth = user ? <Btn href={homeFor(user)}>Open app</Btn> : <Btn href="/signup">Get started</Btn>;
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-100 bg-white/80 backdrop-blur-xl">
       <motion.div style={{ scaleX: progress }} className="absolute inset-x-0 top-0 h-0.5 origin-left bg-brand-500" />
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5" aria-label="Main">
         <Logo />
-        <ul className="hidden items-center gap-8 md:flex">
-          {NAV.map((n) => (
-            <li key={n.href}>
-              <a href={n.href} className="text-sm font-medium text-slate-600 transition-colors hover:text-slate-900">{n.label}</a>
-            </li>
-          ))}
+        <ul className="hidden items-center gap-7 lg:flex">
+          {NAV.map((n) => <li key={n.href}><Link href={n.href} className="text-sm font-medium text-slate-600 transition-colors hover:text-slate-900">{n.label}</Link></li>)}
         </ul>
-        <div className="hidden md:block"><Button href="/login">Start a project</Button></div>
-        <button className="rounded-lg p-2 md:hidden" onClick={() => setOpen((o) => !o)} aria-label="Toggle menu" aria-expanded={open}>
-          {open ? <X size={22} /> : <Menu size={22} />}
-        </button>
+        <div className="hidden items-center gap-3 lg:flex">
+          {!user && <Link href="/login" className="text-sm font-semibold text-slate-700 hover:text-slate-900">Log in</Link>}
+          {auth}
+        </div>
+        <button className="rounded-lg p-2 lg:hidden" onClick={() => setOpen((o) => !o)} aria-label="Toggle menu" aria-expanded={open}>{open ? <X size={22} /> : <Menu size={22} />}</button>
       </nav>
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: EASE }} className="overflow-hidden border-t border-slate-100 bg-white md:hidden"
-          >
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease: EASE }} className="overflow-hidden border-t border-slate-100 bg-white lg:hidden">
             <ul className="space-y-1 px-5 py-4">
-              {NAV.map((n) => (
-                <li key={n.href}>
-                  <a href={n.href} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50">{n.label}</a>
-                </li>
-              ))}
-              <li className="pt-2"><Button href="/signup">Start a project</Button></li>
+              {NAV.map((n) => <li key={n.href}><Link href={n.href} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50">{n.label}</Link></li>)}
+              {!user && <li><Link href="/login" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 font-medium text-slate-700 hover:bg-slate-50">Log in</Link></li>}
+              <li className="pt-2">{auth}</li>
             </ul>
           </motion.div>
         )}
@@ -156,19 +120,12 @@ function Navbar() {
 
 /* ---------- hero ---------- */
 
-function FloatCard({ children, className, delay }: { children: ReactNode; className: string; delay: number }) {
+function Float({ children, className, delay }: { children: ReactNode; className: string; delay: number }) {
+  const reduce = useReducedMotion();
   return (
-    <motion.div
-      className={`absolute z-10 ${className}`}
-      initial={{ opacity: 0, y: 18, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay, duration: 0.7, ease: EASE }}
-    >
-      <motion.div
-        animate={{ y: [0, -7, 0] }}
-        transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut", delay }}
-        className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white/95 p-3 pr-5 shadow-xl shadow-slate-900/10 backdrop-blur"
-      >
+    <motion.div className={`absolute z-10 ${className}`} initial={reduce ? false : { opacity: 0, y: 18, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay, duration: 0.7, ease: EASE }}>
+      <motion.div animate={reduce ? undefined : { y: [0, -7, 0] }} transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut", delay }}
+        className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white/95 p-3 pr-5 shadow-xl shadow-slate-900/10 backdrop-blur">
         {children}
       </motion.div>
     </motion.div>
@@ -176,78 +133,41 @@ function FloatCard({ children, className, delay }: { children: ReactNode; classN
 }
 
 function Hero() {
+  const reduce = useReducedMotion();
+  const rise = (d: number) => (reduce ? {} : { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.8, delay: d, ease: EASE } });
   return (
-    <section id="top" className="relative overflow-hidden pt-32 pb-20 sm:pt-40">
+    <section className="relative overflow-hidden pb-20 pt-32 sm:pt-40">
       <div className="bg-dots pointer-events-none absolute inset-0 -z-10" aria-hidden />
       <div className="mx-auto grid max-w-6xl items-center gap-14 px-5 lg:grid-cols-[1.05fr_1fr]">
         <div>
-          <motion.div
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
-            className="inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3.5 py-1.5 text-sm font-medium text-brand-700"
-          >
-            <Sparkles size={14} /> The layer between the tools you already use
-          </motion.div>
-          <motion.h1
-            initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1, ease: EASE }}
-            className="mt-6 text-4xl font-semibold leading-[1.05] sm:text-5xl lg:text-[3.6rem]"
-          >
-            Your work shouldn&apos;t disappear between the tools you use.
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.22, ease: EASE }}
-            className="mt-6 max-w-xl text-lg leading-relaxed text-slate-600"
-          >
-            Nuvora connects what you learn, build, solve, document and publish, keeping your context and evidence together from idea to opportunity.
+          <motion.p {...rise(0)} className="inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3.5 py-1.5 text-sm font-medium text-brand-700"><Sparkles size={14} /> Early access preview</motion.p>
+          <motion.h1 {...rise(0.1)} className="mt-6 text-4xl font-semibold leading-[1.05] sm:text-5xl lg:text-[3.6rem]">Get hired for what you&apos;ve built, not what you&apos;ve claimed.</motion.h1>
+          <motion.p {...rise(0.22)} className="mt-6 max-w-xl text-lg leading-relaxed text-slate-600">
+            Nuvora turns your real project evidence into a capability profile, matches it to real business tasks, and adds every completed task back as proof.
           </motion.p>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.34, ease: EASE }}
-            className="mt-9 flex flex-wrap gap-3"
-          >
-            <Button href="/signup">Start a project <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Button>
-            <Button href="#solution" variant="ghost">See how it works</Button>
+          <motion.div {...rise(0.34)} className="mt-9 flex flex-wrap gap-3">
+            <Btn href="/signup?role=developer"><Code2 size={16} /> I&apos;m a developer <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Btn>
+            <Btn href="/signup?role=employer" variant="ghost"><Briefcase size={16} /> I&apos;m hiring</Btn>
           </motion.div>
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }} className="mt-6 text-sm text-slate-500">
-            Free to start · Private by default · Connects to GitHub in minutes
-          </motion.p>
+          <motion.p {...rise(0.45)} className="mt-5 text-sm text-slate-500">Free to start · Private by default · <Link href="#demo" className="font-medium text-brand-600 hover:underline">Try the demo, no signup</Link></motion.p>
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, delay: 0.2, ease: EASE }}
-          className="relative"
-        >
-          <Photo src={IMG.hero} alt="Developer code on a monitor" className="aspect-[4/4.4] shadow-2xl shadow-slate-900/15" />
-          <FloatCard delay={0.8} className="-left-4 top-10 sm:-left-10">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><GitCommit size={18} /></span>
-            <div><p className="text-xs text-slate-500">GitHub commit</p><p className="text-sm font-semibold">Implemented authentication</p></div>
-          </FloatCard>
-          <FloatCard delay={1.1} className="-right-3 top-1/2 sm:-right-8">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-50 text-violet-600"><Bot size={18} /></span>
-            <div><p className="text-xs text-slate-500">AI-assisted</p><p className="text-sm font-semibold">Debugged Firebase config</p></div>
-          </FloatCard>
-          <FloatCard delay={1.4} className="-bottom-5 left-6 sm:left-12">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600"><Check size={18} /></span>
-            <div><p className="text-xs text-slate-500">Blocker resolved</p><p className="text-sm font-semibold">Production env fixed</p></div>
-          </FloatCard>
+        <motion.div {...(reduce ? {} : { initial: { opacity: 0, scale: 0.96 }, animate: { opacity: 1, scale: 1 }, transition: { duration: 0.9, delay: 0.2, ease: EASE } })} className="relative">
+          <Photo src={IMG.hero} alt="Developer writing code on a monitor" className="aspect-[4/4.4] shadow-2xl shadow-slate-900/15" />
+          <Float delay={0.8} className="-left-4 top-10 sm:-left-10">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-50 text-violet-600"><ShieldCheck size={18} /></span>
+            <div><p className="text-xs text-slate-500">React</p><p className="text-sm font-semibold">L3 Applied · 9 items</p></div>
+          </Float>
+          <Float delay={1.1} className="-right-3 top-1/2 sm:-right-8">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600"><Target size={18} /></span>
+            <div><p className="text-xs text-slate-500">Speed up the customer website</p><p className="text-sm font-semibold">Strong match · 88%</p></div>
+          </Float>
+          <Float delay={1.4} className="-bottom-5 left-6 sm:left-12">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><BadgeCheck size={18} /></span>
+            <div><p className="text-xs text-slate-500">Task approved</p><p className="text-sm font-semibold">Testing verified · L4</p></div>
+          </Float>
+          <p className="mt-8 text-center text-xs text-slate-500">Illustrative example, not a real person</p>
         </motion.div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- tool strip ---------- */
-
-const TOOLS = ["GitHub", "YouTube", "Stack Overflow", "CodeCrafters", "Exercism", "Figma", "Excalidraw", "Claude Code", "Cursor", "Loom", "Vercel", "LinkedIn", "Devpost"];
-
-function ToolStrip() {
-  return (
-    <section aria-label="Works with your tools" className="border-y border-slate-100 bg-slate-50/60 py-8">
-      <p className="mb-5 text-center text-sm font-medium text-slate-500">Works alongside the tools you already use. We don&apos;t replace them.</p>
-      <div className="marquee-mask overflow-hidden">
-        <div className="animate-marquee flex w-max gap-12 pr-12">
-          {[...TOOLS, ...TOOLS].map((t, i) => (
-            <span key={i} className="text-lg font-semibold text-slate-400">{t}</span>
-          ))}
-        </div>
       </div>
     </section>
   );
@@ -255,257 +175,170 @@ function ToolStrip() {
 
 /* ---------- problem ---------- */
 
-const CHAIN = [
-  { tool: "YouTube", what: "You learn a concept" },
-  { tool: "Stack Overflow", what: "You get stuck and search" },
-  { tool: "AI assistant", what: "You paste code to fix it" },
-  { tool: "GitHub", what: "You build and commit" },
-  { tool: "Screenshots", what: "You capture proof by hand" },
-  { tool: "Portfolio", what: "You rewrite it from memory" },
-  { tool: "LinkedIn", what: "You summarise it in one line" },
-];
-
 function Problem() {
+  const cols = [
+    { icon: Code2, who: "If you build", title: "Your skills are hard to prove", body: "A résumé line saying “React” looks the same whether you shipped three apps or watched one video. Good work gets lost between your editor, GitHub and a portfolio you never update." },
+    { icon: Briefcase, who: "If you hire", title: "You can't tell who can do the job", body: "Self-declared skills and polished profiles say little about who can actually fix your slow website or build your internal tool. Finding out usually costs you a bad hire." },
+  ];
   return (
-    <section id="problem" className="mx-auto max-w-6xl px-5 py-24 sm:py-32">
-      <SectionHead title="Every tool is good. The trail between them is missing." sub="You learn in one place, get unstuck in another, build in a third. By the time you publish, the story of how you got there is gone." />
-      <div className="mt-14 grid items-center gap-12 lg:grid-cols-2">
-        <Reveal><Photo src={IMG.problem} alt="Notes and sketches scattered across a desk" className="aspect-[4/3.4]" /></Reveal>
-        <ol className="relative space-y-0">
-          {CHAIN.map((c, i) => (
-            <motion.li
-              key={c.tool}
-              initial={{ opacity: 0, x: 24 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true, margin: "-40px" }}
-              transition={{ duration: 0.5, delay: i * 0.07, ease: EASE }}
-            >
-              <div className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">{i + 1}</span>
-                <div><p className="font-semibold">{c.tool}</p><p className="text-sm text-slate-500">{c.what}</p></div>
+    <section className="mx-auto max-w-6xl px-5 py-24 sm:py-32">
+      <Head title="Résumés describe. Evidence shows." sub="Both sides of hiring are guessing. Nuvora replaces guesses with a record of real work." />
+      <div className="mt-12 grid items-stretch gap-6 lg:grid-cols-[1fr_1.1fr]">
+        <Reveal><Photo src={IMG.problem} alt="A desk covered in unfinished notes and sketches" className="h-full min-h-[280px]" /></Reveal>
+        <div className="grid gap-5">
+          {cols.map((c, i) => (
+            <Reveal key={c.title} delay={i * 0.1}>
+              <div className="h-full rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-slate-700"><c.icon size={19} /></span>
+                <p className="mt-4 text-sm font-medium text-slate-500">{c.who}</p>
+                <h3 className="text-xl font-semibold">{c.title}</h3>
+                <p className="mt-2 leading-relaxed text-slate-600">{c.body}</p>
               </div>
-              {i < CHAIN.length - 1 && (
-                <div className="ml-8 flex items-center gap-3 py-1.5 text-xs font-medium text-rose-500">
-                  <span className="h-5 border-l-2 border-dashed border-rose-300" />
-                  Context lost
-                </div>
-              )}
-            </motion.li>
+            </Reveal>
           ))}
-        </ol>
+        </div>
       </div>
     </section>
   );
 }
 
-/* ---------- solution ---------- */
+/* ---------- the loop ---------- */
 
-const PILLARS: { icon: LucideIcon; title: string; body: string }[] = [
-  { icon: Brain, title: "Remember context", body: "Goals, decisions, blockers and what you already tried, kept in one PROJECT.md." },
-  { icon: ShieldCheck, title: "Capture evidence", body: "Commits, tests, screenshots and notes, each tagged with where it came from." },
-  { icon: Compass, title: "Guide the next step", body: "A clear answer to “what should I do next?” with the reason attached." },
-  { icon: FileText, title: "Turn work into a story", body: "Your real activity becomes a project page you can publish with one click." },
+const LOOP: { icon: LucideIcon; who: string; title: string; body: string; ex: string }[] = [
+  { icon: GitCommit, who: "Developer", title: "Build and collect evidence", body: "Commits, tests, designs, decisions and solved blockers collect on your projects. Each item records who made it: you, AI, a collaborator or an outside source.", ex: "Commit · Add authentication flow · Human" },
+  { icon: ShieldCheck, who: "Developer", title: "Evidence becomes capability", body: "Every skill gets a level from L0 to L4, and you can open any level to see exactly which items earned it. Work done with AI counts for less, and you decide what employers see.", ex: "Node.js · L2 Practiced · 5 evidence items" },
+  { icon: FileSearch, who: "Employer", title: "Describe a need in plain words", body: "Write the problem the way you'd say it to a colleague. Nuvora structures it into requirements, skills, scope and acceptance criteria that you review and edit.", ex: "“Our website is slow” becomes a scoped task" },
+  { icon: Target, who: "Both", title: "Match, with the reasons shown", body: "Developers are ranked by how well their evidence fits the skills the task needs. Every score shows its working, so you can disagree with it.", ex: "Strong match · 88% · strongest in JavaScript and React" },
+  { icon: Users, who: "Developer", title: "Accept, build and submit", body: "Accept the task, do the work, and submit it against each acceptance criterion with automated checks. Employers invite or assign, and developers always choose to accept.", ex: "Submitted · 3 of 3 criteria addressed · tests passing" },
+  { icon: ClipboardCheck, who: "Employer", title: "Review and verify", body: "Approve the work or ask for changes. Approved work verifies the developer's skills at L4 and becomes new evidence, so the next match starts from a stronger profile.", ex: "Approved · Testing verified · added to evidence" },
 ];
 
-function Solution() {
+function Loop() {
+  const [i, setI] = useState(0);
+  const s = LOOP[i];
   return (
-    <section id="solution" className="bg-slate-50/70 py-24 sm:py-32">
+    <section id="loop" className="bg-slate-50/70 py-24 sm:py-32">
       <div className="mx-auto max-w-6xl px-5">
-        <SectionHead center title="Nuvora sits between your tools and keeps the journey connected." sub="Connect once. From then on, every stage feeds the same record of what you tried, decided and shipped." />
-        <div className="mt-14 grid items-stretch gap-6 lg:grid-cols-[1fr_1.1fr]">
-          <Reveal className="grid gap-4 sm:grid-cols-2">
-            {PILLARS.map((p, i) => (
-              <motion.div
-                key={p.title} whileHover={{ y: -4 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm"
-              >
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><p.icon size={20} /></span>
-                <h3 className="mt-4 text-lg font-semibold">{p.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">{p.body}</p>
-              </motion.div>
+        <Head center title="One loop: learn, build, prove, contribute." sub="Each completed task becomes proof for the next one. Select a step to see what happens." />
+        <div className="mt-14 grid items-start gap-8 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div role="tablist" aria-label="The Nuvora loop" aria-orientation="vertical" className="space-y-2">
+            {LOOP.map((l, n) => (
+              <button key={l.title} role="tab" aria-selected={n === i} onClick={() => setI(n)}
+                className={`relative flex w-full items-center gap-3 rounded-2xl p-3.5 text-left transition-colors ${n === i ? "text-white" : "bg-white text-slate-700 hover:bg-slate-100"}`}>
+                {n === i && <motion.span layoutId="loop-pill" className="absolute inset-0 rounded-2xl bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
+                <span className={`relative grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-semibold ${n === i ? "bg-white/15" : "bg-slate-100"}`}>{n + 1}</span>
+                <span className="relative text-sm font-medium">{l.title}</span>
+              </button>
             ))}
-          </Reveal>
-          <Reveal delay={0.1} className="relative">
-            <Photo src={IMG.solution} alt="Team collaborating around laptops" className="h-full min-h-[340px]" />
-            <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-slate-200/70 bg-white/95 p-5 font-mono text-xs leading-6 shadow-xl backdrop-blur">
-              <p className="mb-1 font-sans text-sm font-semibold text-slate-900">PROJECT.md</p>
-              <p><span className="text-brand-600">Goal</span>   AI-powered learning platform</p>
-              <p><span className="text-brand-600">Stage</span>  Build</p>
-              <p><span className="text-brand-600">Blocker</span> Firebase auth failing in prod</p>
-              <p><span className="text-brand-600">Next</span>   Connect authentication</p>
-            </div>
-          </Reveal>
+          </div>
+
+          <div role="tabpanel" className="rounded-3xl border border-slate-100 bg-white p-7 shadow-sm sm:p-9">
+            <AnimatePresence mode="wait">
+              <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.3, ease: EASE }}>
+                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-50 text-brand-600"><s.icon size={22} /></span>
+                <p className="mt-5 text-sm font-medium text-slate-500">{s.who}</p>
+                <h3 className="text-2xl font-semibold">{s.title}</h3>
+                <p className="mt-3 max-w-xl text-lg leading-relaxed text-slate-600">{s.body}</p>
+                <p className="mt-6 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700"><span className="font-medium">Example: </span>{s.ex}</p>
+                {i === LOOP.length - 1 && <p className="mt-4 flex items-center gap-2 text-sm font-medium text-brand-700"><Check size={16} /> Then the loop starts again, with more proof.</p>}
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-/* ---------- journey ---------- */
+/* ---------- two audiences ---------- */
 
-function Journey() {
-  const [active, setActive] = useState(STAGE_NAMES.indexOf("Build"));
-  const s = STAGES[active];
+function Audience({ id, image, alt, tag, title, points, cta, href, flip }: {
+  id: string; image: string; alt: string; tag: string; title: string; points: string[]; cta: string; href: string; flip?: boolean;
+}) {
   return (
-    <section id="journey" className="mx-auto max-w-6xl px-5 py-24 sm:py-32">
-      <SectionHead title="One flexible journey, from first idea to real contribution." sub="Skip stages, repeat them or jump back. Nuvora keeps your context wherever you go. Pick a stage to see what it asks of you." />
-      <div className="mt-12 flex flex-wrap gap-2" role="tablist" aria-label="Journey stages">
-        {STAGES.map((st, i) => (
-          <button
-            key={st.name} role="tab" aria-selected={i === active} onClick={() => setActive(i)}
-            className={`relative rounded-full px-4 py-2 text-sm font-medium transition-colors ${i === active ? "text-white" : i < active ? "bg-brand-50 text-brand-700 hover:bg-brand-100" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-          >
-            {i === active && <motion.span layoutId="stage-pill" className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
-            <span className="relative flex items-center gap-1.5">{i < active && <Check size={13} />}{st.name}</span>
-          </button>
-        ))}
-      </div>
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1.1fr_1fr]">
-        <div className="rounded-3xl border border-slate-100 bg-white p-8 shadow-sm">
-          <AnimatePresence mode="wait">
-            <motion.div key={s.name} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.3, ease: EASE }}>
-              <h3 className="text-2xl font-semibold">{s.name}</h3>
-              <p className="mt-4 text-sm font-medium text-slate-500">The question at this stage</p>
-              <p className="mt-1 text-lg text-slate-800">{s.q}</p>
-              <p className="mt-6 text-sm font-medium text-slate-500">Tasks</p>
-              <ul className="mt-2 space-y-2">
-                {s.tasks.map((t) => (
-                  <li key={t} className="flex items-center gap-2.5 text-slate-700"><Check size={16} className="text-brand-600" />{t}</li>
-                ))}
-              </ul>
-              <div className="mt-6 rounded-xl bg-brand-50 p-4 text-sm text-brand-700"><span className="font-semibold">Done when: </span>{s.exit}</div>
-            </motion.div>
-          </AnimatePresence>
-        </div>
-        <Photo src={IMG.journey} alt="Team planning a project on a whiteboard" className="min-h-[300px]" />
-      </div>
+    <div id={id} className={`grid items-center gap-10 lg:grid-cols-2 ${flip ? "lg:[&>*:first-child]:order-2" : ""}`}>
+      <Reveal><Photo src={image} alt={alt} className="aspect-[4/3] shadow-xl shadow-slate-900/10" /></Reveal>
+      <Reveal delay={0.1}>
+        <p className="text-sm font-semibold text-brand-600">{tag}</p>
+        <h3 className="mt-2 text-3xl font-semibold leading-tight">{title}</h3>
+        <ul className="mt-6 space-y-3">
+          {points.map((p) => <li key={p} className="flex gap-3 text-slate-700"><Check size={19} className="mt-0.5 shrink-0 text-brand-600" /> {p}</li>)}
+        </ul>
+        <div className="mt-8"><Btn href={href}>{cta} <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Btn></div>
+      </Reveal>
+    </div>
+  );
+}
+
+function Audiences() {
+  return (
+    <section className="mx-auto max-w-6xl space-y-28 px-5 py-24 sm:py-32">
+      <Audience id="developers" image={IMG.dev} alt="A laptop showing code" tag="For developers" title="Turn the work you already do into proof."
+        points={["Build projects and your evidence collects as you go: commits, tests, designs and notes", "See every skill measured from the work behind it, with what to do to reach the next level", "Get matched to real tasks, and see exactly why they fit you", "Choose what employers can see. Nothing is shared until you say so"]}
+        cta="Start as a developer" href="/signup?role=developer" />
+      <Audience id="employers" flip image={IMG.emp} alt="A small team working together at laptops" tag="For employers" title="Describe the problem. Find who can solve it."
+        points={["Write a need in plain words and review the structured task before it goes live", "See candidates ranked by evidence, with the reasons and the work behind each score", "Invite or assign, and developers confirm before they start", "Approve the work against the acceptance criteria you set"]}
+        cta="Start hiring" href="/signup?role=employer" />
     </section>
   );
 }
 
 /* ---------- evidence ---------- */
 
-type Prov = "Human" | "AI-assisted" | "Collaborator" | "External";
-const PROV_STYLE: Record<Prov, string> = {
-  Human: "bg-emerald-50 text-emerald-700",
-  "AI-assisted": "bg-violet-50 text-violet-700",
-  Collaborator: "bg-amber-50 text-amber-700",
-  External: "bg-sky-50 text-sky-700",
-};
-const EVIDENCE: { icon: LucideIcon; type: string; text: string; when: string; src: string; prov: Prov; stage: string }[] = [
-  { icon: GitCommit, type: "Commit", text: "Implemented authentication", when: "Today", src: "GitHub", prov: "Human", stage: "Build" },
-  { icon: Bot, type: "AI session", text: "Debugged Firebase configuration", when: "Today", src: "Claude Code", prov: "AI-assisted", stage: "Get unstuck" },
-  { icon: Camera, type: "Screenshot", text: "Dashboard completed", when: "Today", src: "Folder watcher", prov: "Human", stage: "Document" },
-  { icon: Lightbulb, type: "Decision", text: "Chose Firebase over Supabase, since the team knows it", when: "Yesterday", src: "Nuvora", prov: "Collaborator", stage: "Prototype" },
-  { icon: BookOpen, type: "Learning", text: "Completed authentication tutorial", when: "Yesterday", src: "YouTube", prov: "External", stage: "Learn" },
-  { icon: Check, type: "Blocker resolved", text: "Updated production environment variables", when: "Yesterday", src: "Nuvora", prov: "Human", stage: "Get unstuck" },
+const SKILLS: { name: string; level: 0 | 1 | 2 | 3 | 4; items: number }[] = [
+  { name: "Testing", level: 4, items: 7 }, { name: "React", level: 3, items: 9 }, { name: "Node.js", level: 2, items: 5 }, { name: "SQL", level: 1, items: 2 },
 ];
-const FILTERS = ["All", "Human", "AI-assisted", "External"] as const;
+const PROOF: { text: string; prov: Provenance; meta: string }[] = [
+  { text: "41 integration tests for the API (passing)", prov: "Human", meta: "Test · Route Planner API" },
+  { text: "Added a database index and cached the heavy query", prov: "Human", meta: "Blocker resolved · Route Planner API" },
+  { text: "Debugged environment configuration", prov: "AI-assisted", meta: "AI session · counts for half" },
+];
 
 function Evidence() {
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("All");
-  const items = EVIDENCE.filter((e) => filter === "All" || e.prov === filter);
   return (
     <section id="evidence" className="bg-slate-50/70 py-24 sm:py-32">
-      <div className="mx-auto max-w-6xl px-5">
-        <SectionHead title="Don't just claim what you can do. Show the evidence." sub="Every item on your timeline says what it is, where it came from and who made it, including when AI helped." />
-        <div className="mt-12 grid items-start gap-10 lg:grid-cols-[1.15fr_1fr]">
-          <div>
-            <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="Filter by provenance">
-              {FILTERS.map((f) => (
-                <button key={f} onClick={() => setFilter(f)} aria-pressed={f === filter}
-                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${f === filter ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}>
-                  {f}
-                </button>
+      <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 lg:grid-cols-2">
+        <div>
+          <Head title="Open any skill and see the evidence behind it." sub="Levels aren't a claim. Each one is earned from specific work, so an employer can check it, and you can see how to climb." />
+          <Reveal delay={0.1}>
+            <ol className="mt-8 space-y-2.5" aria-label="Capability levels">
+              {LEVEL_LABEL.map((l, n) => (
+                <li key={l} className="flex gap-3 text-sm"><span className={`h-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${LEVEL_BADGE[n]}`}>L{n} {l}</span><span className="text-slate-600">{LEVEL_RULE[n]}</span></li>
               ))}
-            </div>
-            <ul className="relative space-y-3">
-              <AnimatePresence mode="popLayout">
-                {items.map((e) => (
-                  <motion.li key={e.text} layout initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
-                    transition={{ duration: 0.35, ease: EASE }} className="flex gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700"><e.icon size={18} /></span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <p className="font-semibold">{e.type}</p>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${PROV_STYLE[e.prov]}`}>{e.prov}</span>
-                      </div>
-                      <p className="mt-0.5 text-slate-700">{e.text}</p>
-                      <p className="mt-1 text-xs text-slate-500">{e.when} from {e.src}, during {e.stage}</p>
-                    </div>
-                  </motion.li>
-                ))}
-              </AnimatePresence>
-            </ul>
-          </div>
-          <Reveal className="space-y-6 lg:sticky lg:top-24">
-            <Photo src={IMG.evidence} alt="Analytics dashboard showing project results" className="aspect-[4/3]" />
-            <ul className="space-y-3 text-slate-700">
-              {["Provenance on every item: human, AI-assisted, collaborator or external", "Secrets and personal data flagged before anything goes public", "Guidance that always explains why it suggests a next step"].map((t) => (
-                <li key={t} className="flex gap-3"><ShieldCheck size={20} className="mt-0.5 shrink-0 text-brand-600" />{t}</li>
-              ))}
-            </ul>
+            </ol>
           </Reveal>
         </div>
-      </div>
-    </section>
-  );
-}
 
-/* ---------- story + privacy ---------- */
-
-function Toggle({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
-  return (
-    <button role="switch" aria-checked={on} aria-label={label} onClick={onChange}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-brand-600" : "bg-slate-300"}`}>
-      <motion.span layout transition={{ type: "spring", stiffness: 500, damping: 32 }} className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow ${on ? "right-0.5" : "left-0.5"}`} />
-    </button>
-  );
-}
-
-function Story() {
-  const [vis, setVis] = useState({ Commits: true, Screenshots: true, Decisions: true, Blockers: false, "Environment variables": false });
-  const keys = Object.keys(vis) as (keyof typeof vis)[];
-  return (
-    <section id="story" className="mx-auto max-w-6xl px-5 py-24 sm:py-32">
-      <SectionHead title="Turn raw activity into a project story people can read." sub="Choose what goes public, review the warnings, and publish. Everything stays private until you say otherwise." />
-      <div className="mt-12 grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
-        <Reveal className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-          <h3 className="flex items-center gap-2 font-semibold"><Lock size={18} className="text-brand-600" /> Visibility</h3>
-          <ul className="mt-4 divide-y divide-slate-100">
-            {keys.map((k) => (
-              <li key={k} className="flex items-center justify-between py-3">
-                <span className="text-slate-700">{k}</span>
-                <span className="flex items-center gap-3">
-                  <span className="w-14 text-right text-xs text-slate-500">{vis[k] ? "Public" : "Private"}</span>
-                  <Toggle on={vis[k]} label={`Make ${k} public`} onChange={() => setVis((v) => ({ ...v, [k]: !v[k] }))} />
-                </span>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 flex gap-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-            <p>Secret scan found 1 possible API key in <span className="font-mono">.env.example</span>. Review it before publishing.</p>
-          </div>
-        </Reveal>
-
-        <Reveal delay={0.1} className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-xl shadow-slate-900/5">
-          <div className="relative h-44">
-            <img src={IMG.story} alt="Laptop showing a finished project" loading="lazy" className="h-full w-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-white via-white/10 to-transparent" />
-          </div>
-          <div className="space-y-5 p-7 pt-2">
-            <h3 className="text-2xl font-semibold">EduBoost AI</h3>
-            {[
-              ["The problem", "African students lack affordable, personalised study support."],
-              ["The process", "Learned auth patterns, prototyped the flow, chose Firebase after comparing options."],
-              ["The build", "React and TypeScript app with Firebase auth and Firestore."],
-              ["Evidence", `${vis.Commits ? "24 commits, " : ""}${vis.Screenshots ? "6 screenshots, " : ""}${vis.Decisions ? "3 decisions" : "details hidden"}`],
-              ["The result", "A working platform, shipped by a team of three."],
-            ].map(([h, b], i) => (
-              <motion.div key={h} initial={{ opacity: 0, x: 12 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.08, duration: 0.5, ease: EASE }}>
-                <p className="text-sm font-semibold text-brand-700">{h}</p>
-                <p className="mt-0.5 text-slate-700">{b}</p>
-              </motion.div>
-            ))}
+        <Reveal delay={0.1}>
+          <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-xl shadow-slate-900/5 sm:p-7">
+            <p className="text-sm font-medium text-slate-500">Example profile</p>
+            <ul className="mt-4 space-y-5">
+              {SKILLS.map((s, n) => (
+                <li key={s.name}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{s.name}</span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${LEVEL_BADGE[s.level]}`}>L{s.level} {LEVEL_LABEL[s.level]}</span>
+                    <span className="ml-auto text-xs text-slate-500">{s.items} evidence items</span>
+                  </div>
+                  <div className="mt-2 flex gap-1.5" role="img" aria-label={`${s.name}: level ${s.level} of 4`}>
+                    {[1, 2, 3, 4].map((b) => (
+                      <span key={b} className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                        <motion.span className={`block h-full rounded-full ${LEVEL_BAR[s.level]}`} initial={{ width: 0 }} whileInView={{ width: b <= s.level ? "100%" : 0 }} viewport={{ once: true }} transition={{ duration: 0.7, delay: n * 0.1 + b * 0.07, ease: EASE }} />
+                      </span>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="mb-2 mt-7 text-sm font-medium text-slate-500">What counts toward Testing</p>
+            <ul className="space-y-2">
+              {PROOF.map((p) => (
+                <li key={p.text} className="rounded-xl border border-slate-100 p-3">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="text-sm font-medium">{p.text}</p><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${PROV_STYLE[p.prov]}`}>{p.prov}</span></div>
+                  <p className="text-xs text-slate-500">{p.meta}</p>
+                </li>
+              ))}
+            </ul>
           </div>
         </Reveal>
       </div>
@@ -513,59 +346,66 @@ function Story() {
   );
 }
 
-/* ---------- integrations ---------- */
+/* ---------- trust ---------- */
 
-const INTEGRATIONS: { icon: LucideIcon; name: string; role: string; how: string }[] = [
-  { icon: GitCommit, name: "GitHub", role: "Commits, pull requests, tests", how: "Git-native" },
-  { icon: BookOpen, name: "YouTube and courses", role: "What you learned", how: "Browser attach" },
-  { icon: Layers, name: "Stack Overflow", role: "How you got unstuck", how: "Browser attach" },
-  { icon: Layers, name: "CodeCrafters and Exercism", role: "Practice progress", how: "Git-native" },
-  { icon: Lightbulb, name: "Figma, Excalidraw, Balsamiq", role: "Design files", how: "Folder watcher" },
-  { icon: Bot, name: "AI coding tools", role: "Recorded as provenance", how: "MCP (planned)" },
-  { icon: Camera, name: "CleanShot, OBS, Loom", role: "Screenshots and videos", how: "Folder watcher" },
-  { icon: Globe, name: "Vercel, Netlify, Pages", role: "Where you publish", how: "API" },
-  { icon: Link2, name: "LinkedIn, Devpost, Wellfound", role: "Where evidence gets used", how: "Manual link" },
+const TRUST: { icon: LucideIcon; title: string; body: string }[] = [
+  { icon: Lock, title: "Private by default", body: "Your projects and evidence are private until you publish or make them public. You choose item by item." },
+  { icon: EyeOff, title: "You control discovery", body: "Employers can only find you if you opt in, and they only see evidence you've made public." },
+  { icon: Bot, title: "Honest about AI", body: "Every item shows who made it. Work done with AI counts for less, and the top level needs a person's work." },
+  { icon: BadgeCheck, title: "Verified, not self-granted", body: "L4 only comes from work an employer approved on Nuvora. You can't give it to yourself." },
 ];
 
-function Integrations() {
+function Trust() {
   return (
-    <section id="integrations" className="bg-slate-50/70 py-24 sm:py-32">
-      <div className="mx-auto max-w-6xl px-5">
-        <SectionHead center title="Connect the tools you already love." sub="Integrations are read-only by default. Anything that writes needs your explicit permission, and a manual option always exists." />
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {INTEGRATIONS.map((t, i) => (
-            <motion.div key={t.name} initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }}
-              transition={{ delay: (i % 3) * 0.08, duration: 0.55, ease: EASE }} whileHover={{ y: -4 }}
-              className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-slate-700"><t.icon size={19} /></span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{t.how}</span>
-              </div>
-              <h3 className="mt-4 font-semibold">{t.name}</h3>
-              <p className="mt-1 text-sm text-slate-600">{t.role}</p>
-            </motion.div>
-          ))}
-        </div>
-      </div>
+    <section id="trust" className="mx-auto max-w-6xl px-5 py-24 sm:py-32">
+      <Head center title="Built so both sides can trust the result." sub="A profile is only worth reading if it can't be easily faked, and only worth sharing if you stay in control." />
+      <ul className="mt-14 grid gap-5 sm:grid-cols-2">
+        {TRUST.map((t, i) => (
+          <Reveal key={t.title} delay={(i % 2) * 0.08}>
+            <li className="flex h-full gap-4 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600"><t.icon size={20} /></span>
+              <div><h3 className="font-semibold">{t.title}</h3><p className="mt-1.5 text-sm leading-relaxed text-slate-600">{t.body}</p></div>
+            </li>
+          </Reveal>
+        ))}
+      </ul>
     </section>
   );
 }
 
-/* ---------- final CTA + footer ---------- */
+/* ---------- demo + final CTA ---------- */
 
-function CTA() {
+function Demo() {
+  const router = useRouter();
   return (
-    <section id="cta" className="mx-auto max-w-6xl px-5 py-24 sm:py-28">
+    <section id="demo" className="mx-auto max-w-3xl px-5 pb-24">
+      <Reveal>
+        <div className="rounded-3xl border border-slate-100 bg-white p-7 shadow-sm sm:p-9">
+          <h2 className="text-2xl font-semibold">Try it in a minute, no signup</h2>
+          <p className="mt-2 text-slate-600">Open a demo account with sample projects, evidence and tasks already filled in. Log out and try the other side to see the whole loop.</p>
+          <div className="mt-6"><DemoLogin onDone={(u) => router.push(homeFor(u))} /></div>
+          <p className="mt-5 text-sm leading-relaxed text-slate-500">
+            Nuvora is an early preview. Everything runs in your browser with sample data, and task structuring and matching use transparent rules, not AI. Real accounts, live GitHub connection and payments are not built yet.
+          </p>
+        </div>
+      </Reveal>
+    </section>
+  );
+}
+
+function FinalCta() {
+  return (
+    <section className="mx-auto max-w-6xl px-5 pb-24">
       <Reveal>
         <div className="relative overflow-hidden rounded-[2rem] bg-slate-900 px-6 py-20 text-center sm:px-16">
           <img src={IMG.cta} alt="" aria-hidden loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-25" />
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900/90 via-slate-900/70 to-brand-700/60" />
           <div className="relative mx-auto max-w-2xl">
-            <h2 className="text-3xl font-semibold text-white sm:text-5xl">Start building with continuity.</h2>
-            <p className="mt-5 text-lg text-slate-300">Learn it. Build it. Prove it. Keep the context. Create your first project in under two minutes.</p>
+            <h2 className="text-3xl font-semibold text-white sm:text-5xl">Learn it. Build it. Prove it. Contribute.</h2>
+            <p className="mt-5 text-lg text-slate-300">Start with the work you&apos;ve already done, or the problem you need solved.</p>
             <div className="mt-9 flex flex-wrap justify-center gap-3">
-              <Button href="/signup" variant="light">Start a project <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Button>
-              <a href="#solution" className="inline-flex items-center rounded-full border border-white/25 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/10">See how it works</a>
+              <Btn href="/signup?role=developer" variant="light"><Code2 size={16} /> I&apos;m a developer</Btn>
+              <Link href="/signup?role=employer" className="inline-flex items-center gap-2 rounded-full border border-white/25 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/10"><Briefcase size={16} /> I&apos;m hiring</Link>
             </div>
           </div>
         </div>
@@ -578,12 +418,9 @@ function Footer() {
   return (
     <footer className="border-t border-slate-100">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 px-5 py-10 sm:flex-row">
-        <div className="text-center sm:text-left">
-          <Logo />
-          <p className="mt-2 text-sm text-slate-500">The continuity layer for learning, building and proving what you can do.</p>
-        </div>
+        <div className="text-center sm:text-left"><Logo /><p className="mt-2 text-sm text-slate-500">Real work, matched to proven skill.</p></div>
         <ul className="flex flex-wrap justify-center gap-6 text-sm text-slate-600">
-          {NAV.map((n) => <li key={n.href}><a href={n.href} className="hover:text-slate-900">{n.label}</a></li>)}
+          {[["Pricing", "/pricing"], ["Terms", "/terms"], ["Privacy", "/privacy"], ["Log in", "/login"]].map(([l, h]) => <li key={h}><Link href={h} className="hover:text-slate-900">{l}</Link></li>)}
         </ul>
         <p className="text-sm text-slate-400">© {new Date().getFullYear()} Nuvora</p>
       </div>
@@ -591,22 +428,19 @@ function Footer() {
   );
 }
 
-/* ---------- page ---------- */
-
 export default function Page() {
   return (
     <>
       <Navbar />
       <main id="main">
         <Hero />
-        <ToolStrip />
         <Problem />
-        <Solution />
-        <Journey />
+        <Loop />
+        <Audiences />
         <Evidence />
-        <Story />
-        <Integrations />
-        <CTA />
+        <Trust />
+        <Demo />
+        <FinalCta />
       </main>
       <Footer />
     </>

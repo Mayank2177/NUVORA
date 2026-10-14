@@ -1,0 +1,150 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { AnimatePresence, m } from "framer-motion";
+import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
+import { AuthError, signIn, initiateGitHubSignIn, useSession, type AuthUser } from "@/lib/auth";
+import { homeFor } from "@/lib/market";
+import { Field, GitHubMark, inputCls } from "@/components/auth-ui";
+
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+type Fields = { email: string; password: string };
+type Errors = Partial<Record<keyof Fields, string>>;
+
+export default function LoginPage() {
+  const router = useRouter();
+  const session = useSession();
+  const [f, setF] = useState<Fields>({ email: "", password: "" });
+  const [show, setShow] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
+  const [errors, setErrors] = useState<Errors>({});
+  const [formError, setFormError] = useState("");
+  const [loading, setLoading] = useState<"email" | "github" | null>(null);
+  const [shake, setShake] = useState(0);
+
+  // Already signed in? Skip the form.
+  useEffect(() => {
+    if (session) {
+      homeFor(session).then((route) => router.replace(route));
+    }
+  }, [session, router]);
+
+  const set = (k: keyof Fields) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setF((p) => ({ ...p, [k]: e.target.value }));
+    if (errors[k]) setErrors((p) => ({ ...p, [k]: undefined }));
+    if (formError) setFormError("");
+  };
+
+  function fail(message: string) {
+    setFormError(message);
+    setShake((n) => n + 1);
+    setLoading(null);
+  }
+
+  const enter = (u: AuthUser) => {
+    homeFor(u).then((route) => router.push(route));
+  };
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError("");
+    const errs: Errors = {};
+    if (!EMAIL_RE.test(f.email)) errs.email = "Enter a valid email address, like you@example.com.";
+    if (!f.password) errs.password = "Enter your password.";
+    setErrors(errs);
+    if (Object.keys(errs).length) return;
+
+    setLoading("email");
+    try {
+      enter(await signIn({ email: f.email.trim(), password: f.password }));
+    } catch (err) {
+      if (err instanceof AuthError && err.code === "mfa") {
+        router.push("/login/mfa");
+        return;
+      }
+      fail(err instanceof AuthError ? err.message : "Something went wrong. Check your connection and try again.");
+    }
+  }
+
+  async function onGitHub() {
+    setFormError("");
+    setLoading("github");
+    try {
+      await initiateGitHubSignIn();
+    } catch {
+      fail("GitHub authentication is not configured.");
+    }
+  }
+
+  return (
+    <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
+      <h1 className="text-3xl font-semibold">Welcome back</h1>
+      <p className="mt-2 text-slate-600">Log in to pick up right where you left off.</p>
+
+      <button
+        type="button" onClick={onGitHub} disabled={loading !== null}
+        className="mt-8 flex w-full items-center justify-center gap-2.5 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-60"
+      >
+        {loading === "github" ? <Loader2 size={18} className="animate-spin" /> : <GitHubMark />}
+        Continue with GitHub
+      </button>
+
+      <div className="my-6 flex items-center gap-4 text-sm text-slate-400">
+        <span className="h-px flex-1 bg-slate-200" /> or log in with email <span className="h-px flex-1 bg-slate-200" />
+      </div>
+
+      <m.form
+        key={shake} onSubmit={onSubmit} noValidate className="space-y-4"
+        animate={shake ? { x: [0, -8, 8, -5, 5, 0] } : undefined} transition={{ duration: 0.4 }}
+      >
+        <AnimatePresence>
+          {formError && (
+            <m.div
+              role="alert" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-sm text-rose-700"
+            >
+              <AlertCircle size={17} className="mt-0.5 shrink-0" /> {formError}
+            </m.div>
+          )}
+        </AnimatePresence>
+
+        <Field id="email" label="Email" error={errors.email}>
+          <input id="email" type="email" autoComplete="email" autoFocus placeholder="you@example.com" value={f.email} onChange={set("email")}
+            aria-invalid={!!errors.email} aria-describedby={errors.email ? "email-error" : undefined} className={inputCls(!!errors.email)} />
+        </Field>
+
+        <Field
+          id="password" label="Password" error={errors.password}
+          action={<Link href="/forgot-password" className="text-sm font-medium text-brand-600 hover:underline">Forgot password?</Link>}
+        >
+          <div className="relative">
+            <input id="password" type={show ? "text" : "password"} autoComplete="current-password" placeholder="Your password"
+              value={f.password} onChange={set("password")} aria-invalid={!!errors.password}
+              onKeyDown={(e) => setCapsLock(e.getModifierState("CapsLock"))} onKeyUp={(e) => setCapsLock(e.getModifierState("CapsLock"))}
+              aria-describedby={errors.password ? "password-error" : undefined} className={`${inputCls(!!errors.password)} pr-12`} />
+            <button type="button" onClick={() => setShow((s) => !s)} aria-label={show ? "Hide password" : "Show password"}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-slate-500 hover:text-slate-800">
+              {show ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+          {capsLock && <p role="status" className="mt-1.5 text-sm text-amber-700">Caps Lock is on.</p>}
+        </Field>
+
+        <m.button
+          type="submit" disabled={loading !== null} whileTap={{ scale: 0.98 }}
+          className="group flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-semibold text-white shadow-lg shadow-brand-600/20 transition-colors hover:bg-brand-700 disabled:opacity-60"
+        >
+          {loading === "email" ? <><Loader2 size={18} className="animate-spin" /> Logging in…</> : <>Log in <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></>}
+        </m.button>
+      </m.form>
+
+      <p className="mt-8 text-center text-sm text-slate-600">
+        New to Nuvora? <Link href="/signup" className="font-semibold text-brand-600 hover:underline">Create an account</Link>
+      </p>
+    </m.div>
+  );
+}

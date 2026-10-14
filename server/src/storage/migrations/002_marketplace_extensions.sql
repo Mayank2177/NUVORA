@@ -1,0 +1,5 @@
+-- Migration 002: Add missing marketplace and profile tables
+-- Created: 2026-10-12
+-- Description: Adds tables for task offers, developer/employer onboarding, skill verifications, and workspace state
+-- Note: This migration is incorporated into the main schema.py file
+-- The schema.py file is the source of truth for table definitions

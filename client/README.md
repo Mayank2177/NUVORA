@@ -1,0 +1,3 @@
+# NUVORA
+
+The platform connects developers with real-world technical opportunities based on evidence of their actual capabilities, not just resumes or self-declared skills. It analyzes projects, code, contributions, tests, and development activity to build an evidence-backed capability profile, while converting unstructured business needs into structured technical tasks. An intelligent matching layer connects the right capabilities with the right business needs, followed by sandboxed execution and validation. Completed work then becomes additional career evidence, creating a continuous loop between learning, building, proving, and contributing.

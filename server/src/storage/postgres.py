@@ -71,14 +71,25 @@ class PostgresConnection:
         self._reconnect()
 
     def _reconnect(self):
-        """Lease a pooled connection; let the requested query check remote liveness."""
+        """Discard stale pooled connections before returning one to a request."""
+        last_error = None
         for _ in range(2):
             connection = self._pool.getconn()
-            if not connection.closed:
+            cursor = None
+            try:
+                if connection.closed:
+                    raise psycopg2.InterfaceError("PostgreSQL pool returned a closed connection")
+                cursor = connection.cursor()
+                cursor.execute("SELECT 1")
                 self._connection = connection
                 return
-            self._pool.putconn(connection, close=True)
-        raise sqlite3.OperationalError("PostgreSQL pool returned closed connections")
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as exc:
+                last_error = exc
+                self._pool.putconn(connection, close=True)
+            finally:
+                if cursor:
+                    cursor.close()
+        raise sqlite3.OperationalError("PostgreSQL connection failed two health checks") from last_error
 
     def _mark_broken(self) -> None:
         self._broken = True

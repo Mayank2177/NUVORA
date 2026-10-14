@@ -6,8 +6,8 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from storage.instance import storage
-from storage.utils import (
+from src.storage.instance import storage
+from src.storage.utils import (
     decode_cursor,
     encode_cursor,
     json_dumps,
@@ -15,9 +15,9 @@ from storage.utils import (
     normalize_github_repo_url,
     utc_now_iso,
 )
-from api.routes.auth import require_user
-from schemas.journey import Stage
-from api.concurrency import offload_database
+from src.api.routes.auth import require_user
+from src.schemas.journey import Stage
+from src.api.concurrency import offload_database
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -81,12 +81,13 @@ class _ProjectBody(BaseModel):
 
 class ProjectCreate(_ProjectBody):
     name: str = Field(min_length=2, max_length=60)
-    goal: str = Field(min_length=10, max_length=5000)
-    users: str = Field(min_length=1, max_length=2000)
+    goal: Optional[str] = Field(default=None, min_length=10, max_length=5000)
+    users: Optional[str] = Field(default="General developers", min_length=1, max_length=2000)
     constraints: Optional[str] = Field(default=None, max_length=5000)
     stage: Stage = "Think"
     repo: Optional[str] = Field(default=None, max_length=500)
     # Optional legacy presentation fields (kept for existing clients)
+    summary: Optional[str] = Field(default=None, min_length=10, max_length=5000)  # Legacy alias for goal
     stack: List[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=50)
     span: str = Field(default="", max_length=200)
 
@@ -97,6 +98,19 @@ class ProjectCreate(_ProjectBody):
         if len(value) < 2:
             raise ValueError("name must contain at least 2 characters")
         return value
+    
+    @field_validator("goal")
+    @classmethod
+    def _goal_from_summary(cls, value: Optional[str], info) -> str:
+        """Support legacy 'summary' field as alias for 'goal'."""
+        # If goal is not provided but summary is, use summary
+        if value is None and "summary" in info.data and info.data["summary"]:
+            return info.data["summary"]
+        # If goal is provided, use it
+        if value:
+            return value
+        # If neither is provided, raise error
+        raise ValueError("Either 'goal' or 'summary' must be provided")
 
 
 class ProjectUpdate(_ProjectBody):
@@ -191,8 +205,9 @@ def list_projects(
         params.append(status)
     
     if q:
-        conditions += " AND (name LIKE ? OR summary LIKE ? OR repo LIKE ?)"
-        like = f"%{q}%"
+        conditions += " AND (LOWER(name) LIKE LOWER(?) ESCAPE '\\' OR LOWER(summary) LIKE LOWER(?) ESCAPE '\\' OR LOWER(repo) LIKE LOWER(?) ESCAPE '\\')"
+        escaped_q = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped_q}%"
         params.extend([like, like, like])
     
     total: Optional[int] = None
@@ -364,3 +379,91 @@ def delete_project(project_id: str, user: dict = Depends(require_user)):
     storage.executemany_tx(transaction)
     
     return None
+
+
+class ProjectStatsResponse(BaseModel):
+    projectId: str
+    commitCount: int
+    evidenceCount: int
+    blockersCount: int
+    openBlockersCount: int
+    resolvedBlockersCount: int
+    tasksCount: int
+    openTasksCount: int
+    completedTasksCount: int
+    designsCount: int
+    decisionsCount: int
+    lastCommitAt: Optional[str] = None
+    lastEvidenceAt: Optional[str] = None
+    lastActivityAt: Optional[str] = None
+
+
+@router.get("/{project_id}/stats", response_model=ProjectStatsResponse)
+@offload_database
+def get_project_stats(project_id: str, user: dict = Depends(require_user)):
+    """Get comprehensive statistics for a project."""
+    # Verify ownership
+    storage.owned_project(project_id, user["id"])
+    
+    # Get all counts in a single query for efficiency
+    stats_row = storage.fetchone(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM commits WHERE project_id = ?) AS commit_count,
+            (SELECT COUNT(*) FROM evidence WHERE project_id = ?) AS evidence_count,
+            (SELECT COUNT(*) FROM blockers WHERE project_id = ?) AS blockers_count,
+            (SELECT COUNT(*) FROM blockers WHERE project_id = ? AND status = 'open') AS open_blockers_count,
+            (SELECT COUNT(*) FROM blockers WHERE project_id = ? AND status = 'resolved') AS resolved_blockers_count,
+            (SELECT COUNT(*) FROM tasks WHERE project_id = ?) AS tasks_count,
+            (SELECT COUNT(*) FROM tasks WHERE project_id = ? AND done = 0) AS open_tasks_count,
+            (SELECT COUNT(*) FROM tasks WHERE project_id = ? AND done = 1) AS completed_tasks_count,
+            (SELECT COUNT(*) FROM designs WHERE project_id = ?) AS designs_count,
+            (SELECT COUNT(*) FROM decisions WHERE project_id = ?) AS decisions_count,
+            (SELECT MAX(committed_at) FROM commits WHERE project_id = ?) AS last_commit_at,
+            (SELECT MAX(created_at) FROM evidence WHERE project_id = ?) AS last_evidence_at
+        """,
+        (project_id, project_id, project_id, project_id, project_id, 
+         project_id, project_id, project_id, project_id, project_id,
+         project_id, project_id),
+    )
+    
+    if not stats_row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Determine last activity from multiple sources
+    last_activity_row = storage.fetchone(
+        """
+        SELECT MAX(activity_time) AS last_activity FROM (
+            SELECT MAX(committed_at) AS activity_time FROM commits WHERE project_id = ?
+            UNION ALL
+            SELECT MAX(created_at) AS activity_time FROM evidence WHERE project_id = ?
+            UNION ALL
+            SELECT MAX(created_at) AS activity_time FROM blockers WHERE project_id = ?
+            UNION ALL
+            SELECT MAX(created_at) AS activity_time FROM tasks WHERE project_id = ?
+            UNION ALL
+            SELECT MAX(created_at) AS activity_time FROM designs WHERE project_id = ?
+            UNION ALL
+            SELECT MAX(created_at) AS activity_time FROM decisions WHERE project_id = ?
+        )
+        """,
+        (project_id, project_id, project_id, project_id, project_id, project_id),
+    )
+    
+    return ProjectStatsResponse(
+        projectId=project_id,
+        commitCount=int(stats_row["commit_count"] or 0),
+        evidenceCount=int(stats_row["evidence_count"] or 0),
+        blockersCount=int(stats_row["blockers_count"] or 0),
+        openBlockersCount=int(stats_row["open_blockers_count"] or 0),
+        resolvedBlockersCount=int(stats_row["resolved_blockers_count"] or 0),
+        tasksCount=int(stats_row["tasks_count"] or 0),
+        openTasksCount=int(stats_row["open_tasks_count"] or 0),
+        completedTasksCount=int(stats_row["completed_tasks_count"] or 0),
+        designsCount=int(stats_row["designs_count"] or 0),
+        decisionsCount=int(stats_row["decisions_count"] or 0),
+        lastCommitAt=stats_row["last_commit_at"],
+        lastEvidenceAt=stats_row["last_evidence_at"],
+        lastActivityAt=last_activity_row["last_activity"] if last_activity_row else None,
+    )
+

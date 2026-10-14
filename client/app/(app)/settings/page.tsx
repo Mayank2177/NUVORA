@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, Check, Download, Eye, EyeOff, Loader2, LogOut, Trash2 } from "lucide-react";
-import { AuthError, changePassword, hasPassword, signOut, updateProfile, useSession } from "@/lib/auth";
+import { AuthError, beginMfaSetup, changePassword, disableMfa, enableMfa, getMfaStatus, hasPassword, signOut, updateProfile, useSession } from "@/lib/auth";
 import { deleteAccount, downloadText, exportAccountData } from "@/lib/account";
 import { useProjects } from "@/lib/store";
 
@@ -18,12 +18,12 @@ const inputCls = (invalid = false) =>
 
 function Card({ title, hint, children, danger = false }: { title: string; hint: string; children: React.ReactNode; danger?: boolean }) {
   return (
-    <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}
+    <m.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}
       className={`rounded-3xl border bg-white p-6 shadow-sm ${danger ? "border-rose-100" : "border-slate-100"}`}>
       <h2 className={`font-semibold ${danger ? "text-rose-700" : ""}`}>{title}</h2>
       <p className="mt-1 text-sm text-slate-500">{hint}</p>
       <div className="mt-5">{children}</div>
-    </motion.section>
+    </m.section>
   );
 }
 
@@ -32,9 +32,11 @@ function Err({ id, msg }: { id?: string; msg: string }) {
 }
 
 export default function SettingsPage() {
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   const router = useRouter();
   const user = useSession();
-  const { projects } = useProjects();
+  const { projects } = useProjects((s) => ({ projects: s.projects }));
 
   const [name, setName] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -52,15 +54,16 @@ export default function SettingsPage() {
 
   if (!user) return <div className="h-64 animate-pulse rounded-3xl bg-slate-200/60" role="status" aria-label="Loading settings" />;
 
-  const passwordAccount = hasPassword(user.id);
+  const passwordAccount = hasPassword(user);
   const nameVal = name ?? user.name;
   const emailVal = email ?? user.email;
   const dirty = nameVal.trim() !== user.name || emailVal.trim().toLowerCase() !== user.email;
   const initials = user.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   function toast(msg: string) {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
     setFlash(msg);
-    setTimeout(() => setFlash(""), 2600);
+    flashTimer.current = setTimeout(() => setFlash(""), 2600);
   }
 
   async function saveProfile(e: React.FormEvent) {
@@ -87,7 +90,7 @@ export default function SettingsPage() {
     e.preventDefault();
     const errs: typeof pwErr = {};
     if (!pw.current) errs.current = "Enter your current password.";
-    if (pw.next.length < 8) errs.next = "Use at least 8 characters.";
+    if (pw.next.length < 12) errs.next = "Use at least 12 characters.";
     else if (pw.next === pw.current) errs.next = "Choose a password different from the current one.";
     if (pw.confirm !== pw.next) errs.confirm = "The passwords don't match.";
     setPwErr(errs);
@@ -106,7 +109,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-wrap items-center gap-5">
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-wrap items-center gap-5">
         <span className="grid h-16 w-16 place-items-center rounded-full bg-slate-900 text-xl font-semibold text-white" aria-hidden>{initials}</span>
         <div className="min-w-0">
           <h1 className="text-3xl font-semibold">Settings</h1>
@@ -115,7 +118,7 @@ export default function SettingsPage() {
             Signed in with {passwordAccount ? "email" : "GitHub"} · {projects.length} project{projects.length === 1 ? "" : "s"}
           </p>
         </div>
-      </motion.div>
+      </m.div>
 
       <Card title="Profile" hint="How you appear in Nuvora and on pages you publish.">
         <form onSubmit={saveProfile} noValidate className="space-y-4">
@@ -140,7 +143,7 @@ export default function SettingsPage() {
         </form>
       </Card>
 
-      <Card title="Password" hint={passwordAccount ? "Use at least 8 characters." : "You sign in with GitHub, so there is no password to manage."}>
+      <Card title="Password" hint={passwordAccount ? "Use at least 12 characters." : "You sign in with GitHub, so there is no password to manage."}>
         {passwordAccount ? (
           <form onSubmit={savePassword} noValidate className="space-y-4">
             {pwErr.form && <p role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" /> {pwErr.form}</p>}
@@ -169,9 +172,11 @@ export default function SettingsPage() {
         ) : null}
       </Card>
 
+      <MfaSettings passwordRequired={passwordAccount} />
+
       <Card title="Your data" hint="Everything you've added lives in this browser. Download a copy any time.">
         <div className="flex flex-wrap gap-3">
-          <button onClick={() => { downloadText(`nuvora-export-${new Date().toISOString().slice(0, 10)}.json`, exportAccountData(user)); toast("Export downloaded."); }}
+          <button onClick={async () => { try { downloadText(`nuvora-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAccountData(user)); toast("Export downloaded."); } catch { toast("Export failed. Please try again."); } }}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:border-slate-300 hover:bg-slate-50">
             <Download size={16} /> Export my data
           </button>
@@ -185,34 +190,92 @@ export default function SettingsPage() {
       <Card danger title="Delete account" hint="Permanently removes your account, projects, evidence and published pages from this browser. This can't be undone.">
         <AnimatePresence mode="wait" initial={false}>
           {confirmDelete ? (
-            <motion.div key="c" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
+            <m.div key="c" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-3">
               <label htmlFor="del" className="block text-sm font-medium text-slate-700">Type <span className="font-mono font-semibold">DELETE</span> to confirm</label>
               <input id="del" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" className={inputCls()} />
               <div className="flex items-center gap-2">
-                <button onClick={() => { deleteAccount(user); router.replace("/"); }} disabled={typed !== "DELETE"}
+                <button onClick={async () => { 
+                  try {
+                    await deleteAccount();
+                    router.replace("/");
+                  } catch (error) {
+                    console.error("Failed to delete account:", error);
+                    alert("Failed to delete account. Please try again.");
+                  }
+                }} disabled={typed !== "DELETE"}
                   className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-700 disabled:opacity-40">
                   <Trash2 size={16} /> Delete everything
                 </button>
                 <button onClick={() => { setConfirmDelete(false); setTyped(""); }} className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900">Cancel</button>
               </div>
-            </motion.div>
+            </m.div>
           ) : (
-            <motion.button key="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setConfirmDelete(true)}
+            <m.button key="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setConfirmDelete(true)}
               className="inline-flex items-center gap-2 rounded-xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-50">
               <Trash2 size={16} /> Delete my account
-            </motion.button>
+            </m.button>
           )}
         </AnimatePresence>
       </Card>
 
       <AnimatePresence>
         {flash && (
-          <motion.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+          <m.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
             className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2.5 rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-2xl">
             <Check size={16} className="text-emerald-400" /> {flash}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function MfaSettings({ passwordRequired }: { passwordRequired: boolean }) {
+  const [enabled, setEnabled] = useState(false);
+  const [setup, setSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { getMfaStatus().then(setEnabled).catch(() => setError("Could not load MFA settings.")); }, []);
+
+  async function run(action: () => Promise<void>) {
+    setLoading(true);
+    setError("");
+    try { await action(); } catch (cause) {
+      setError(cause instanceof AuthError ? cause.message : "Could not update MFA settings. Try again.");
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <Card title="Two-step verification" hint="Protect your account with an authenticator app. You can also use single-use recovery codes.">
+      {error && <p role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</p>}
+      {backupCodes.length > 0 ? (
+        <div className="space-y-3">
+          <p className="font-medium text-amber-800">Save these recovery codes now. Each code works once, and they won’t be shown again.</p>
+          <pre className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-4 font-mono text-sm">{backupCodes.join("\n")}</pre>
+          <button onClick={() => setBackupCodes([])} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">I saved my codes</button>
+        </div>
+      ) : enabled ? (
+        <form onSubmit={(event) => { event.preventDefault(); void run(async () => { await disableMfa(code.trim(), password || undefined); setEnabled(false); setCode(""); setPassword(""); }); }} className="space-y-3">
+          <p className="text-sm font-medium text-emerald-700">Authenticator MFA is enabled.</p>
+          {passwordRequired && <input type="password" autoComplete="current-password" placeholder="Current password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm" />}
+          <input autoComplete="one-time-code" placeholder="Authenticator or recovery code" value={code} onChange={(e) => setCode(e.target.value)} required className="w-full rounded-xl border border-slate-200 px-4 py-2.5 font-mono text-sm" />
+          <button disabled={loading} className="rounded-xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-700 disabled:opacity-60">{loading ? "Updating…" : "Turn off MFA"}</button>
+        </form>
+      ) : setup ? (
+        <form onSubmit={(event) => { event.preventDefault(); void run(async () => { const codes = await enableMfa(code.trim()); setEnabled(true); setSetup(null); setCode(""); setBackupCodes(codes); }); }} className="space-y-3">
+          <p className="text-sm text-slate-600">Add this key to your authenticator app, then enter its 6-digit code.</p>
+          <code className="block break-all rounded-xl bg-slate-50 p-3 text-sm">{setup.secret}</code>
+          <a href={setup.otpauthUrl} className="text-sm font-medium text-brand-600 hover:underline">Open in authenticator app</a>
+          <input autoComplete="one-time-code" inputMode="numeric" maxLength={6} placeholder="6-digit code" value={code} onChange={(e) => setCode(e.target.value)} required className="w-full rounded-xl border border-slate-200 px-4 py-2.5 font-mono text-sm" />
+          <div className="flex gap-2"><button disabled={loading} className="rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{loading ? "Verifying…" : "Enable MFA"}</button><button type="button" onClick={() => setSetup(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm">Cancel</button></div>
+        </form>
+      ) : (
+        <button disabled={loading} onClick={() => void run(async () => setSetup(await beginMfaSetup()))} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{loading ? "Starting…" : "Set up authenticator"}</button>
+      )}
+    </Card>
   );
 }

@@ -4,17 +4,32 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.concurrency import offload_database
-from api.routes.auth import require_user
-from schemas.journey import (
-    BlockerAttempt, BlockerCreate, BlockerResolve, DecisionCreate, DesignCreate, TaskCreate,
+from src.api.concurrency import offload_database
+from src.api.routes.auth import require_user
+from src.schemas.journey import (
+    BlockerAttempt, BlockerCreate, BlockerResolve, DecisionCreate, DesignCreate, TaskCreate, TaskUpdate,
     normalize_design_image,
 )
-from storage.instance import storage
-from storage.utils import json_dumps, json_loads, utc_now_iso
+from src.storage.instance import storage
+from src.storage.sql import RESOURCE_TABLES, UPDATE_FIELDS, build_insert, build_update
+from src.storage.utils import json_dumps, json_loads, utc_now_iso
 
 router = APIRouter(prefix="/api", tags=["journey"])
 Resource = Literal["blockers", "tasks", "designs", "decisions"]
+RESOURCE_FIELDS = {table: fields for table, fields in RESOURCE_TABLES.items()}
+
+
+# List of all valid stages for the journey
+STAGES = [
+    "Think", "Idea", "Problem solving", "Research", "Learn", "Practice", "Prototype", "Build",
+    "Validate", "Document", "Publish", "Portfolio", "Demonstrate", "Opportunity", "Contribution",
+]
+
+
+@router.get("/stages")
+def get_stages(user: dict = Depends(require_user)):
+    """Return stage metadata for the project journey."""
+    return {"stages": STAGES}
 
 
 def _project(conn, project_id: str, user_id: str):
@@ -28,6 +43,8 @@ def _project(conn, project_id: str, user_id: str):
 
 
 def _resource(conn, table: Resource, resource_id: str, user_id: str):
+    if table not in RESOURCE_FIELDS:
+        raise ValueError("Unsupported resource")
     # Table names are internal literals, never request input.
     sql = (
         f"SELECT r.* FROM {table} r JOIN projects p ON p.id = r.project_id "
@@ -57,6 +74,8 @@ def _serialize(table: Resource, row) -> dict[str, Any]:
 
 
 def _list(table: Resource, project_id: str, user_id: str, limit: int, offset: int, order: str = "desc"):
+    if table not in RESOURCE_FIELDS:
+        raise ValueError("Unsupported resource")
     direction = "ASC" if order == "asc" else "DESC"
     storage.owned_project(project_id, user_id)
     # Ownership is repeated in the data query to protect against concurrent deletion.
@@ -79,13 +98,14 @@ def _list(table: Resource, project_id: str, user_id: str, limit: int, offset: in
 
 
 def _create(table: Resource, project_id: str, user_id: str, fields: dict):
+    if table not in RESOURCE_FIELDS:
+        raise ValueError("Unsupported resource")
     now = utc_now_iso()
     data = {"id": str(uuid4()), "project_id": project_id, **fields, "created_at": now, "updated_at": now}
     def transaction(conn):
         _project(conn, project_id, user_id)
-        columns = ", ".join(data)
-        placeholders = ", ".join("?" for _ in data)
-        conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})", tuple(data.values()))
+        statement = build_insert(table, list(data), RESOURCE_FIELDS[table])
+        conn.execute(statement, tuple(data.values()))
         return _serialize(table, conn.execute(f"SELECT * FROM {table} WHERE id = ?", (data["id"],)).fetchone())
     return storage.executemany_tx(transaction)
 
@@ -150,12 +170,15 @@ def resolve_blocker(blocker_id: str, request: BlockerResolve, user: dict = Depen
                 raise HTTPException(409, "The resolution evidence has been deleted")
             return {"blocker": _serialize("blockers", row), "evidence": _resolution_evidence(evidence)}
         now, evidence_id = utc_now_iso(), str(uuid4())
+        project = conn.execute("SELECT stage FROM projects WHERE id = ?", (row["project_id"],)).fetchone()
+        stage = project["stage"] if project and project["stage"] in STAGES else "Problem solving"
+        stage = "Idea" if stage == "Think" else stage
         conn.execute(
             "INSERT INTO evidence (id, project_id, kind, title, body, source, occurred_at, "
             "created_at, updated_at, type, provenance, stage) "
-            "VALUES (?, ?, 'snag', ?, ?, ?, ?, ?, ?, 'Blocker resolved', 'Human', 'Get unstuck')",
+            "VALUES (?, ?, 'snag', ?, ?, ?, ?, ?, ?, 'Blocker resolved', 'Human', ?)",
             (evidence_id, row["project_id"], row["title"], request.solution,
-             f"blocker:{blocker_id}", now, now, now),
+             f"blocker:{blocker_id}", now, now, now, stage),
         )
         evidence = conn.execute("SELECT * FROM evidence WHERE id = ?", (evidence_id,)).fetchone()
         storage.append_evidence_audit(
@@ -192,6 +215,47 @@ def create_task(project_id: str, request: TaskCreate, user: dict = Depends(requi
     return {"task": _create("tasks", project_id, user["id"], request.model_dump())}
 
 
+# DEPRECATED: Frontend uses /api/tasks/{id}/toggle instead
+@router.patch("/projects/{project_id}/tasks/{task_id}")
+@offload_database
+def update_task(project_id: str, task_id: str, request: TaskUpdate, user: dict = Depends(require_user)):
+    """Update task title and/or completion status."""
+    def transaction(conn):
+        # Verify the task belongs to this project and user owns it
+        row = conn.execute(
+            """
+            SELECT tasks.* FROM tasks 
+            JOIN projects ON projects.id = tasks.project_id 
+            WHERE tasks.id = ? AND tasks.project_id = ? AND projects.user_id = ? 
+            AND projects.deleted_at IS NULL
+            """,
+            (task_id, project_id, user["id"])
+        ).fetchone()
+        
+        if not row:
+            raise HTTPException(404, "Task not found")
+        
+        now = utc_now_iso()
+        updates = {"title": request.title, "updated_at": now}
+        
+        # Handle done status if provided
+        if request.done is not None:
+            updates["done"] = int(request.done)
+            updates["done_at"] = now if request.done else None
+        
+        # Build update query
+        statement, values = build_update("tasks", UPDATE_FIELDS["tasks"], updates)
+        conn.execute(
+            f"{statement} WHERE id = ?",
+            values + (task_id,)
+        )
+        
+        # Return updated task
+        return _serialize("tasks", conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone())
+    
+    return {"task": storage.executemany_tx(transaction)}
+
+
 @router.patch("/tasks/{task_id}/toggle")
 @offload_database
 def toggle_task(task_id: str, user: dict = Depends(require_user)):
@@ -205,10 +269,29 @@ def toggle_task(task_id: str, user: dict = Depends(require_user)):
     return {"task": storage.executemany_tx(transaction)}
 
 
-@router.delete("/tasks/{task_id}", status_code=204)
+@router.delete("/projects/{project_id}/tasks/{task_id}", status_code=204)
 @offload_database
-def delete_task(task_id: str, user: dict = Depends(require_user)):
-    _delete("tasks", task_id, user["id"])
+def delete_project_task(project_id: str, task_id: str, user: dict = Depends(require_user)):
+    """Delete a task (with explicit project_id in path)."""
+    def transaction(conn):
+        # Verify the task belongs to this project and user owns it
+        row = conn.execute(
+            """
+            SELECT tasks.id FROM tasks 
+            JOIN projects ON projects.id = tasks.project_id 
+            WHERE tasks.id = ? AND tasks.project_id = ? AND projects.user_id = ? 
+            AND projects.deleted_at IS NULL
+            """,
+            (task_id, project_id, user["id"])
+        ).fetchone()
+        
+        if not row:
+            raise HTTPException(404, "Task not found")
+        
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    
+    storage.executemany_tx(transaction)
+    return None
 
 
 @router.get("/projects/{project_id}/designs")

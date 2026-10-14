@@ -5,7 +5,7 @@ lock and avoids repeatedly initializing the schema during route imports.
 """
 from functools import lru_cache
 
-from config import settings
+from src.config import settings
 from .db import Storage
 
 
@@ -13,7 +13,6 @@ from .db import Storage
 def get_storage() -> Storage:
     return Storage(
         settings.database_path,
-        seed_demo=False,
         database_url=settings.database_url,
         database_pool_min_size=settings.database_pool_min_size,
         database_pool_size=settings.database_pool_size,

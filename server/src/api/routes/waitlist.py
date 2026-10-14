@@ -4,10 +4,10 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, EmailStr, Field
 import sqlite3
 
-from storage.instance import storage
-from storage.utils import new_id, utc_now_iso
-from api.routes.auth import require_admin
-from api.concurrency import offload_database
+from src.storage.instance import storage
+from src.storage.utils import new_id, utc_now_iso
+from src.api.routes.auth import require_admin
+from src.api.concurrency import offload_database
 
 router = APIRouter(prefix="/api/waitlist", tags=["waitlist"])
 

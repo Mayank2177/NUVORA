@@ -1,19 +1,18 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, ArrowUpRight, Check, Copy, EyeOff, Globe, Loader2, RotateCcw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useSession } from "@/lib/auth";
 import { useProjects, type Project } from "@/lib/store";
 import { PROV_STYLE, TYPE_ICON, useProjectData, type ProjectData } from "@/lib/data";
 import {
-  SLUG_RE, STORY_LABELS, generateStory, loadPublishedStatus, loadDraft, publishSnapshot,
-  saveDraft, scan, slugify, unpublish, type Draft, type Snapshot, type Story,
+  SLUG_RE, STORY_LABELS, generateStory, getPublishedSlug, loadDraft, publishSnapshot,
+  saveDraft, scan, slugTaken, slugify, unpublish, type Draft, type Snapshot, type Story,
 } from "@/lib/publish";
 import { ProjectStory } from "@/components/project-story";
-import { api } from "@/lib/api-client";
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 const inputCls = (invalid = false) =>
@@ -25,7 +24,7 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: () => void; la
   return (
     <button role="switch" aria-checked={on} aria-label={label} onClick={onChange}
       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-brand-600" : "bg-slate-300"}`}>
-      <motion.span layout transition={{ type: "spring", stiffness: 500, damping: 32 }} className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow ${on ? "right-0.5" : "left-0.5"}`} />
+      <m.span transition={{ type: "spring", stiffness: 500, damping: 32 }} className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow ${on ? "right-0.5" : "left-0.5"}`} />
     </button>
   );
 }
@@ -53,43 +52,59 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
   const user = useSession();
   const pid = project.id;
 
-  const [draft, setDraft] = useState<Draft>({ slug: slugify(project.name), story: null, includeBlockers: true });
-  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draft, setDraft] = useState<Draft>(() => {
+    return { slug: slugify(project.name), story: null, includeBlockers: true };
+  });
   const [pubSlug, setPubSlug] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [operationError, setOperationError] = useState("");
   const [copied, setCopied] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
-  const [slugCheck, setSlugCheck] = useState<{ slug: string; available: boolean } | null>(null);
+  const [error, setError] = useState("");
+  const [slugConflict, setSlugConflict] = useState(false);
+  const [checkingSlug, setCheckingSlug] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    Promise.all([loadDraft(pid), loadPublishedStatus(pid)]).then(([savedDraft, publishedSlug]) => {
-      if (!cancelled) { setDraft(savedDraft); setPubSlug(publishedSlug); setDraftLoaded(true); }
-    }).catch((error) => { console.error("Could not load publishing state", error); if (!cancelled) setDraftLoaded(true); });
-    return () => { cancelled = true; };
+    let active = true;
+    Promise.all([loadDraft(pid), getPublishedSlug(pid)]).then(([savedDraft, publishedSlug]) => {
+      if (!active) return;
+      if (savedDraft) setDraft(savedDraft);
+      setPubSlug(publishedSlug);
+      setLoaded(true);
+    }).catch(() => {
+      if (!active) return;
+      setError("Couldn't load publishing settings. Try refreshing the page.");
+      setLoaded(true);
+    });
+    return () => { active = false; };
   }, [pid]);
 
   useEffect(() => {
-    if (!draftLoaded) return;
-    const timer = setTimeout(() => { void saveDraft(pid, draft).catch((error) => console.error("Could not save publishing draft", error)); }, 350);
-    return () => clearTimeout(timer);
-  }, [pid, draft, draftLoaded]);
-
-  const slugValid = SLUG_RE.test(draft.slug) && draft.slug.length >= 3;
-  const slugAvailable = slugValid && slugCheck?.slug === draft.slug ? slugCheck.available : null;
+    if (!loaded) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      void saveDraft(pid, draft).catch(() => {
+        if (active) setError("Your draft couldn't be saved. Check your connection and try again.");
+      });
+    }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [pid, draft, loaded]);
 
   useEffect(() => {
-    if (!draftLoaded || !slugValid) return;
-    let cancelled = false;
-    const slug = draft.slug;
+    if (!loaded || !draft.slug || !SLUG_RE.test(draft.slug) || draft.slug.length < 3) {
+      return;
+    }
+    let active = true;
     const timer = setTimeout(() => {
-      api.publishing.checkSlug(pid, slug)
-        .then((r) => { if (!cancelled) setSlugCheck({ slug, available: r.available }); })
-        .catch(() => { if (!cancelled) setSlugCheck(null); });
+      if (active) setCheckingSlug(true);
+      void slugTaken(draft.slug, pid).then((taken) => {
+        if (active) setSlugConflict(taken);
+      }).finally(() => {
+        if (active) setCheckingSlug(false);
+      });
     }, 250);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [pid, draft.slug, draftLoaded, slugValid]);
+    return () => { active = false; clearTimeout(timer); };
+  }, [draft.slug, pid, loaded]);
 
   const publicEv = useMemo(() => data.evidence.filter((e) => e.public), [data.evidence]);
   const resolved = useMemo(() => (draft.includeBlockers ? data.blockers.filter((b) => b.status === "resolved") : []), [data.blockers, draft.includeBlockers]);
@@ -97,9 +112,9 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
   const story: Story = draft.story ?? generated;
   const findings = useMemo(() => scan(story, publicEv, resolved), [story, publicEv, resolved]);
 
-  const slugError = !slugValid
+  const slugError = !draft.slug || !SLUG_RE.test(draft.slug) || draft.slug.length < 3
     ? "Use 3 or more lowercase letters, numbers and hyphens."
-    : slugAvailable === false ? "That address is already taken. Try another." : "";
+    : slugConflict ? "That address is already taken. Try another." : "";
 
   const blocked = findings.secrets.length > 0 || !!slugError || publicEv.length === 0;
   const origin = typeof window === "undefined" ? "" : window.location.origin;
@@ -119,16 +134,29 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
   }
 
   async function onPublish() {
-    if (blocked) return;
-    setOperationError("");
+    if (blocked || checkingSlug || publishing) return;
     setPublishing(true);
+    setError("");
     try {
-      await publishSnapshot({ ...snapshot, publishedAt: new Date().toISOString() }, draft.includeBlockers);
+      await saveDraft(pid, draft);
+      await publishSnapshot({ ...snapshot, publishedAt: new Date().toISOString() });
       setPubSlug(draft.slug);
-    } catch (error) {
-      console.error("Could not publish project", error);
-      setOperationError("Could not publish the project. Please try again.");
-    } finally { setPublishing(false); }
+    } catch {
+      setError("The page couldn't be published. Check your connection and try again.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function takeOffline() {
+    try {
+      await unpublish(pid);
+      setPubSlug(null);
+      setConfirmOff(false);
+      setError("");
+    } catch {
+      setError("The page couldn't be unpublished. Check your connection and try again.");
+    }
   }
 
   async function copy() {
@@ -143,7 +171,7 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-wrap items-end justify-between gap-4">
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Publish</h1>
           <p className="mt-2 max-w-xl text-slate-600">Turn {project.name} into a project story. Everything stays private until you publish, and you choose exactly what is shown.</p>
@@ -151,11 +179,13 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
         <span className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium ${pubSlug ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
           {pubSlug ? <Globe size={15} /> : <EyeOff size={15} />} {pubSlug ? "Published" : "Private draft"}
         </span>
-      </motion.div>
+      </m.div>
+
+      {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
 
       <AnimatePresence>
         {pubSlug && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+          <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
             <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <Check size={18} className="shrink-0 text-emerald-600" />
               <p className="min-w-0 flex-1 truncate font-mono text-sm text-emerald-900">{url}</p>
@@ -166,7 +196,7 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
                 View page <ArrowUpRight size={14} />
               </Link>
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
 
@@ -226,7 +256,7 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
               <label htmlFor="slug" className="mb-1.5 block text-sm font-medium text-slate-700">Page address</label>
               <div className="flex items-center overflow-hidden rounded-xl border border-slate-200 focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-100">
                 <span className="hidden bg-slate-50 px-3 py-2.5 text-sm text-slate-500 sm:block">/p/</span>
-                <input id="slug" value={draft.slug} onChange={(e) => setDraft((d) => ({ ...d, slug: slugify(e.target.value) }))}
+                <input id="slug" value={draft.slug || ""} onChange={(e) => { setSlugConflict(false); setDraft((d) => ({ ...d, slug: slugify(e.target.value) })); }}
                   aria-invalid={!!slugError} className="w-full px-3 py-2.5 text-sm focus:outline-none" />
               </div>
             </div>
@@ -245,20 +275,19 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
             )}
 
             <div className="mt-5 flex flex-wrap items-center gap-3">
-              <motion.button onClick={onPublish} disabled={blocked || publishing} whileTap={{ scale: 0.98 }}
+              <m.button onClick={onPublish} disabled={blocked || checkingSlug || publishing || !loaded} whileTap={{ scale: 0.98 }}
                 className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow-lg shadow-brand-600/20 transition-colors hover:bg-brand-700 disabled:opacity-50">
                 {publishing ? <><Loader2 size={18} className="animate-spin" /> Publishing…</> : <><Globe size={18} /> {pubSlug ? "Update published page" : "Publish project"}</>}
-              </motion.button>
+              </m.button>
               {pubSlug && (confirmOff ? (
                 <span className="flex items-center gap-2 text-sm">
-                  <button onClick={async () => { setOperationError(""); try { await unpublish(pid); setPubSlug(null); setConfirmOff(false); } catch (error) { console.error("Could not unpublish project", error); setOperationError("Could not take the page offline. Please try again."); } }} className="rounded-lg bg-rose-600 px-3 py-2 font-semibold text-white hover:bg-rose-700">Take page offline</button>
+                  <button onClick={() => void takeOffline()} className="rounded-lg bg-rose-600 px-3 py-2 font-semibold text-white hover:bg-rose-700">Take page offline</button>
                   <button onClick={() => setConfirmOff(false)} className="px-2 py-2 font-medium text-slate-600">Cancel</button>
                 </span>
               ) : (
                 <button onClick={() => setConfirmOff(true)} className="px-3 py-3 text-sm font-medium text-slate-600 hover:text-rose-600">Unpublish</button>
               ))}
             </div>
-            {operationError && <p role="alert" className="mt-3 text-sm text-rose-700">{operationError}</p>}
           </Step>
         </div>
 
@@ -277,7 +306,7 @@ function Editor({ project, data, toggleEvidencePublic }: { project: Project; dat
 
 export default function PublishPage() {
   const router = useRouter();
-  const { projects, active, ready } = useProjects();
+  const { projects, active, ready } = useProjects((s) => ({ projects: s.projects, active: s.active, ready: s.ready }));
   const { data, toggleEvidencePublic } = useProjectData(active);
 
   useEffect(() => {
@@ -294,5 +323,3 @@ export default function PublishPage() {
   }
   return <Editor key={active.id} project={active} data={data} toggleEvidencePublic={toggleEvidencePublic} />;
 }
-
-

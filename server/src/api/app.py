@@ -11,32 +11,44 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings
-from storage.instance import get_storage
-from storage.ratelimit import (
+from src.storage.instance import get_storage
+from src.storage.ratelimit import (
     check_rate_limit,
     close_rate_limiter,
     get_client_identifier,
     get_request_ip,
     ping_rate_limiter,
 )
-from storage.utils import hash_password, utc_now_iso, json_dumps
-from api.concurrency import run_blocking
-from api.middleware import RequestBodyLimitMiddleware
+from src.storage.utils import utc_now_iso
+from src.storage.utils import verify_jwt
+from src.api.concurrency import run_blocking
+from src.api.middleware import RequestBodyLimitMiddleware
 
 # Import NUVORA route modules
-from api.routes import (
+from src.api.routes import (
     analytics,
+    work,
+    employer,
+    user_settings,
     auth,
     commits,
     continuity,
     evidence,
     github,
     journey,
+    marketplace_tasks,
+    matching,
+    offers,
+    onboarding,
+    opportunities,
     projects,
     publishing,
+    skills,
+    users,
     waitlist,
+    workspace,
 )
-from mcp.server import router as mcp_router
+from src.mcp.server import router as mcp_router
 
 # Configure logging
 logging.basicConfig(
@@ -46,156 +58,15 @@ logging.basicConfig(
 logger = logging.getLogger("nuvora")
 
 
-def seed_demo() -> None:
-    """Seed demo user and project for development."""
-    storage = get_storage()
-    
-    if storage.fetchone("SELECT id FROM users LIMIT 1"):
-        return
-    
-    logger.info("Seeding NUVORA demo user + project")
-    now = utc_now_iso()
-    user_id = "usr_demo"
-    project_id = "prj_distsys"
-    
-    storage.execute(
-        """
-        INSERT INTO users (
-          id, email, name, username, password_hash, email_verified, is_admin,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
-        """,
-        (
-            user_id,
-            "ada@nuvora.dev",
-            "Ada Engineer",
-            "ada",
-            hash_password("nuvora-demo-pass"),
-            now,
-            now,
-        ),
-    )
-    storage.execute(
-        """
-        INSERT INTO projects (
-          id, user_id, name, slug, repo, summary, stack, span, status,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
-        """,
-        (
-            project_id,
-            user_id,
-            "DistSys-KV",
-            "distsys-kv",
-            "https://github.com/ada/distsys-kv",
-            "A linearizable Raft KV store in Rust, with chaos tests and a public evidence trail.",
-            json_dumps(["Rust", "Raft", "Tokio", "gRPC"]),
-            "4-week sprint",
-            now,
-            now,
-        ),
-    )
-    storage.execute(
-        """
-        INSERT INTO commits (
-          id, project_id, hash, message, author, committed_at, hidden, kind,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            "cmt_election",
-            project_id,
-            "7a21f89c0123456789abcdef0123456789abcdef",
-            "feat(consensus): implement election timer and RequestVote RPC handler",
-            "Ada Engineer",
-            now,
-            "Internal: first timer implementation deadlocked; do not mention in public writeup.",
-            "proof",
-            now,
-            now,
-        ),
-    )
-    evidence_data = [
-        (
-            "evd_notes",
-            "resource",
-            "Raft lecture notes",
-            "Election safety, leader append-only, log matching invariants.",
-            "https://raft.github.io",
-            0, 1, 1, 0,
-        ),
-        (
-            "evd_snag",
-            "snag",
-            "Heartbeat timer dropped future",
-            "tokio mpsc closed the election timer under load. Fixed with biased select! and interval.",
-            "",
-            0, 1, 1, 0,
-        ),
-        (
-            "evd_proof",
-            "proof",
-            "cluster_election tests green",
-            "18 integration tests passed: split-vote, partition isolation, re-election under 400ms.",
-            "",
-            0, 1, 1, 0,
-        ),
-        (
-            "evd_ai",
-            "ai",
-            "gRPC snapshot boilerplate",
-            "AI drafted protobuf/gRPC streaming stubs; reviewed chunk boundaries and added CRC32.",
-            "",
-            1, 1, 1, 0,
-        ),
-    ]
-    for eid, kind, title, body, source, ai, ver, pub, sens in evidence_data:
-        def transaction(conn, evidence_id=eid, evidence_kind=kind,
-                        evidence_title=title, evidence_body=body,
-                        evidence_source=source, ai_assisted=ai,
-                        verified=ver, publish=pub, sensitive=sens):
-            conn.execute(
-                """
-                INSERT INTO evidence (
-                  id, project_id, kind, title, body, source, occurred_at,
-                  ai_assisted, verified, publish, sensitive, commit_hash,
-                  created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-                """,
-                (
-                    evidence_id,
-                    project_id,
-                    evidence_kind,
-                    evidence_title,
-                    evidence_body,
-                    evidence_source,
-                    now,
-                    ai_assisted,
-                    verified,
-                    publish,
-                    sensitive,
-                    now,
-                    now,
-                ),
-            )
-            row = conn.execute(
-                "SELECT * FROM evidence WHERE id = ?", (evidence_id,)
-            ).fetchone()
-            storage.append_evidence_audit(
-                conn,
-                project_id=project_id,
-                evidence_id=evidence_id,
-                actor_id=user_id,
-                action="create",
-                payload=dict(row),
-            )
-
-        storage.executemany_tx(transaction)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Lifecycle management for the FastAPI application."""
+    if settings.database_url:
+        import anyio
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        limiter.total_tokens = min(limiter.total_tokens, settings.database_pool_size)
     if settings.environment.lower() == "production":
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -207,8 +78,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await ping_rate_limiter()
     await github.start_github_client()
     storage = get_storage()
-    if settings.seed_demo:
-        seed_demo()
     logger.info("NUVORA API starting")
     logger.info(
         "Database: %s",
@@ -256,6 +125,18 @@ def _apply_security_headers(response):
 @app.exception_handler(StarletteHTTPException)
 async def http_error(_: Request, exc: StarletteHTTPException):
     body = {"error": exc.detail if isinstance(exc.detail, str) else "Request failed"}
+    business_codes = {
+        "Current password is required to change email": "CURRENT_PASSWORD_REQUIRED",
+        "Current password is incorrect": "CURRENT_PASSWORD_INVALID",
+        "Invalid email or password": "INVALID_CREDENTIALS",
+        "Invalid or expired MFA challenge": "INVALID_MFA_CHALLENGE",
+        "Invalid MFA code": "INVALID_MFA_CODE",
+        "MFA challenge already used": "MFA_CHALLENGE_USED",
+    }
+    if body["error"] in {"Not authenticated", "Session revoked", "Session expired"}:
+        body["code"] = "UNAUTHENTICATED"
+    elif body["error"] in business_codes:
+        body["code"] = business_codes[body["error"]]
     if not isinstance(exc.detail, str):
         body["details"] = exc.detail
     return JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
@@ -275,16 +156,26 @@ async def validation_error(request: Request, exc: RequestValidationError):
 async def unexpected_error(_: Request, exc: Exception):
     # Log internally; never expose exception text to clients.
     logger.exception("Unhandled server error", exc_info=exc)
-    return JSONResponse(status_code=500, content={"error": "Internal server error"})
+    return _apply_security_headers(JSONResponse(status_code=500, content={"error": "Internal server error"}))
 
 
 @app.exception_handler(sqlite3.OperationalError)
 async def database_operational_error(_: Request, exc: sqlite3.OperationalError):
     logger.exception("Database operation failed", exc_info=exc)
-    return JSONResponse(
-        status_code=503,
-        content={"error": "Database temporarily unavailable"},
-    )
+    message = str(exc).lower()
+    if "pool timeout" in message or "postgresql connection unavailable" in message:
+        return _apply_security_headers(JSONResponse(
+            status_code=503,
+            content={"error": "Database temporarily unavailable", "code": "DATABASE_UNAVAILABLE"},
+            headers={"Retry-After": "1"},
+        ))
+    unavailable = any(term in message for term in (
+        "unable to open database", "database is locked", "disk i/o", "connection refused",
+        "connection is closed", "server closed the connection", "could not connect", "timeout expired",
+    ))
+    status = 503 if unavailable else 500
+    body = "Database temporarily unavailable" if unavailable else "Internal server error"
+    return _apply_security_headers(JSONResponse(status_code=status, content={"error": body}))
 
 
 @app.middleware("http")
@@ -299,12 +190,28 @@ async def api_rate_limit(request: Request, call_next):
         ("/api/", "/public/", "/v1/mcp")
     )
     if settings.rate_limit_enabled and rate_limited_path:
-        identifier = get_client_identifier(get_request_ip(request))
+        path = request.url.path
+        if path == "/api/auth/csrf":
+            return await call_next(request)
+        ip_identifier = get_client_identifier(get_request_ip(request))
+        identifier = ip_identifier
+        token = request.cookies.get(auth.SESSION_COOKIE, "")
+        if token:
+            try:
+                user_id = verify_jwt(token, settings.secret_key).get("sub")
+                if user_id:
+                    identifier = f"user:{user_id}"
+            except Exception:
+                pass
+        if path.startswith("/api/auth/"):
+            tier, limit, window = "auth", settings.rate_limit_auth_max, settings.rate_limit_auth_window
+        elif request.method in {"GET", "HEAD", "OPTIONS"}:
+            tier, limit, window = "read", settings.rate_limit_read_max, settings.rate_limit_api_window
+        else:
+            tier, limit, window = "write", settings.rate_limit_api_max, settings.rate_limit_api_window
         try:
             allowed = await check_rate_limit(
-                f"api:{identifier}",
-                settings.rate_limit_api_max,
-                settings.rate_limit_api_window,
+                f"api:{tier}:{identifier}", limit, window,
             )
         except Exception:
             logger.exception("Distributed API rate limiter unavailable")
@@ -316,7 +223,7 @@ async def api_rate_limit(request: Request, call_next):
             return _apply_security_headers(JSONResponse(
                 status_code=429,
                 content={"error": "Too many requests"},
-                headers={"Retry-After": str(settings.rate_limit_api_window)},
+                headers={"Retry-After": str(window)},
             ))
     return await call_next(request)
 
@@ -327,28 +234,38 @@ if settings.enable_cors:
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        allow_headers=["Content-Type", "X-Request-ID", "X-CSRF-Token"],
     )
 
 # Include NUVORA API routers
 app.include_router(auth.router)
+app.include_router(work.router)
+app.include_router(employer.router)
+app.include_router(user_settings.router)
+app.include_router(users.router)
+app.include_router(marketplace_tasks.router)
+app.include_router(offers.router)
+app.include_router(onboarding.router)
+app.include_router(opportunities.router)
+app.include_router(matching.router)
 app.include_router(projects.router)
 app.include_router(journey.router)
 app.include_router(commits.router)
 app.include_router(evidence.router)
 app.include_router(evidence.id_router)
 app.include_router(publishing.router)
+app.include_router(skills.router)
 app.include_router(waitlist.router)
 app.include_router(analytics.router)
 app.include_router(github.router)
 app.include_router(continuity.router)
+app.include_router(workspace.router)
 app.include_router(mcp_router)
 
 
 @app.get("/healthz")
 async def health_check():
     """Health check endpoint."""
-    from storage.utils import utc_now_iso
     storage = get_storage()
     try:
         await run_blocking(storage.fetchone, "SELECT 1 AS ok")
@@ -356,13 +273,14 @@ async def health_check():
             await ping_rate_limiter()
     except Exception as exc:
         from fastapi import HTTPException
+        logger.exception("Health check dependency failed", exc_info=exc)
         raise HTTPException(status_code=503, detail="Dependency unavailable") from exc
     return {
         "status": "healthy",
         "service": "NUVORA",
         "version": app.version,
         "timestamp": utc_now_iso(),
-        "storage": "postgresql" if settings.database_url else str(settings.database_path),
+        "storage": "postgresql" if settings.database_url else "sqlite",
         "sqlite_mode": None if settings.database_url else "WAL",
     }
 
@@ -384,7 +302,7 @@ def run_daemon():
     import uvicorn
     logger.info("Starting NUVORA API on %s:%s", settings.host, settings.port)
     uvicorn.run(
-        "api.app:app",
+        "src.api.app:app",
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level.lower(),

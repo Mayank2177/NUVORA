@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { ArrowRight, Check, PartyPopper, Plus, Trash2 } from "lucide-react";
 import { STAGES, useProjects, type Stage } from "@/lib/store";
 import { STAGE_INFO, useTasks, type Task } from "@/lib/tasks";
@@ -19,7 +19,7 @@ function Ring({ value }: { value: number }) {
     <div className="relative h-24 w-24 shrink-0" role="img" aria-label={`${Math.round(value * 100)}% of this stage's tasks done`}>
       <svg viewBox="0 0 80 80" className="-rotate-90">
         <circle cx="40" cy="40" r={r} fill="none" strokeWidth="7" className="stroke-slate-100" />
-        <motion.circle
+        <m.circle
           cx="40" cy="40" r={r} fill="none" strokeWidth="7" strokeLinecap="round" className="stroke-brand-600"
           strokeDasharray={c} initial={{ strokeDashoffset: c }} animate={{ strokeDashoffset: c * (1 - value) }} transition={{ duration: 0.9, ease: EASE }}
         />
@@ -31,12 +31,12 @@ function Ring({ value }: { value: number }) {
 
 function TaskRow({ t, onToggle, onRemove }: { t: Task; onToggle: () => void; onRemove: () => void }) {
   return (
-    <motion.li layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.3, ease: EASE }}
+    <m.li initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.3, ease: EASE }}
       className="group flex items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3.5 shadow-sm">
       <button role="checkbox" aria-checked={t.done} aria-label={`${t.done ? "Mark not done" : "Mark done"}: ${t.title}`} onClick={onToggle}
         className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 transition-colors ${t.done ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 hover:border-brand-500"}`}>
         <AnimatePresence>
-          {t.done && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ type: "spring", stiffness: 500, damping: 22 }}><Check size={14} strokeWidth={3} /></motion.span>}
+          {t.done && <m.span initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ type: "spring", stiffness: 500, damping: 22 }}><Check size={14} strokeWidth={3} /></m.span>}
         </AnimatePresence>
       </button>
       <span className={`min-w-0 flex-1 break-words text-sm transition-colors ${t.done ? "text-slate-400 line-through" : "text-slate-800"}`}>{t.title}</span>
@@ -44,13 +44,13 @@ function TaskRow({ t, onToggle, onRemove }: { t: Task; onToggle: () => void; onR
         className="rounded-lg p-1.5 text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100">
         <Trash2 size={16} />
       </button>
-    </motion.li>
+    </m.li>
   );
 }
 
 export default function TasksPage() {
   const router = useRouter();
-  const { projects, active, ready, update } = useProjects();
+  const { projects, active, ready, update } = useProjects((s) => ({ projects: s.projects, active: s.active, ready: s.ready, update: s.update }));
   const { tasks, addTask, toggleTask, removeTask } = useTasks(active?.id, active?.stage);
 
   const [tab, setTab] = useState<"current" | "all">("current");
@@ -76,7 +76,7 @@ export default function TasksPage() {
       <div className="animate-pulse space-y-4" role="status" aria-label="Loading tasks">
         <div className="h-10 w-48 rounded-xl bg-slate-200/60" />
         <div className="h-44 rounded-3xl bg-slate-200/60" />
-        {[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-2xl bg-slate-200/60" />)}
+        {[0, 1, 2].map((i) => <div key={`placeholder-${i}`} className="h-14 rounded-2xl bg-slate-200/60" />)}
       </div>
     );
   }
@@ -98,15 +98,15 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
         <h1 className="text-3xl font-semibold">Tasks</h1>
         <p className="mt-2 max-w-xl text-slate-600">
           What to do next on {active.name}, guided by the stage you&apos;re in. {totalOpen} open across all stages.
         </p>
-      </motion.div>
+      </m.div>
 
       {/* Stage panel */}
-      <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.5, ease: EASE }}
+      <m.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.5, ease: EASE }}
         className="flex flex-wrap items-center gap-6 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
         <Ring value={ratio} />
         <div className="min-w-0 flex-1 basis-64">
@@ -115,11 +115,11 @@ export default function TasksPage() {
           <p className="mt-2 text-slate-700"><span className="font-medium">The question: </span>{info.question}</p>
           <p className="mt-1 text-sm text-slate-600"><span className="font-medium text-slate-700">Done when: </span>{info.exit}</p>
         </div>
-      </motion.section>
+      </m.section>
 
       <AnimatePresence>
         {complete && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+          <m.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
             <div className="flex flex-wrap items-center gap-4 rounded-3xl bg-slate-900 p-6 text-white">
               <PartyPopper className="shrink-0 text-brand-200" />
               <div className="min-w-0 flex-1 basis-56">
@@ -133,7 +133,7 @@ export default function TasksPage() {
                 </button>
               )}
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
 
@@ -155,7 +155,7 @@ export default function TasksPage() {
         {([["current", `${stage} (${current.length})`], ["all", `All stages (${tasks.length})`]] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
             className={`relative rounded-full px-4 py-2 text-sm font-medium transition-colors ${tab === k ? "text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-            {tab === k && <motion.span layoutId="task-tab" className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
+            {tab === k && <m.span className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
             <span className="relative">{label}</span>
           </button>
         ))}

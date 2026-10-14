@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, ArrowLeft, ArrowRight, Loader2, MailCheck } from "lucide-react";
 import { requestPasswordReset } from "@/lib/auth";
 
@@ -50,19 +50,19 @@ export default function ForgotPasswordPage() {
   return (
     <AnimatePresence mode="wait">
       {sent ? (
-        <motion.div
+        <m.div
           key="sent"
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.5, ease: EASE }}
           className="text-center"
         >
-          <motion.span
+          <m.span
             initial={{ scale: 0, rotate: -12 }} animate={{ scale: 1, rotate: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 16, delay: 0.1 }}
             className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-brand-50 text-brand-600"
           >
             <MailCheck size={30} />
-          </motion.span>
+          </m.span>
           <h1 className="mt-6 text-2xl font-semibold">Check your inbox</h1>
           <p className="mt-2 text-slate-600">
             If an account exists for <span className="font-medium text-slate-900">{email}</span>, we&apos;ve sent a link to reset your password.
@@ -87,9 +87,9 @@ export default function ForgotPasswordPage() {
               <ArrowLeft size={15} /> Back to log in
             </Link>
           </div>
-        </motion.div>
+        </m.div>
       ) : (
-        <motion.div
+        <m.div
           key="form"
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.5, ease: EASE }}
@@ -116,18 +116,18 @@ export default function ForgotPasswordPage() {
               />
               <AnimatePresence>
                 {error && (
-                  <motion.p
+                  <m.p
                     id="email-error" role="alert"
                     initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
                     className="mt-1.5 flex items-center gap-1.5 overflow-hidden text-sm text-rose-600"
                   >
                     <AlertCircle size={14} /> {error}
-                  </motion.p>
+                  </m.p>
                 )}
               </AnimatePresence>
             </div>
 
-            <motion.button
+            <m.button
               type="submit" disabled={loading} whileTap={{ scale: 0.98 }}
               className="group flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-semibold text-white shadow-lg shadow-brand-600/20 transition-colors hover:bg-brand-700 disabled:opacity-60"
             >
@@ -136,9 +136,9 @@ export default function ForgotPasswordPage() {
               ) : (
                 <>Send reset link <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></>
               )}
-            </motion.button>
+            </m.button>
           </form>
-        </motion.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

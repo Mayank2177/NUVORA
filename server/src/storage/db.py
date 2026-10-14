@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from contextlib import closing, nullcontext
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .schema import SCHEMA
 from .utils import json_dumps, json_loads, new_id, slugify, utc_now_iso
-from domain.hash_chain import compute_entry_hash, verify_chain
+from src.domain.hash_chain import compute_entry_hash, verify_chain
 
 
 class Storage:
@@ -18,7 +19,6 @@ class Storage:
     def __init__(
         self,
         database_path: Path,
-        seed_demo: bool = False,
         database_url: str = "",
         database_pool_min_size: int = 1,
         database_pool_size: int = 20,
@@ -44,12 +44,22 @@ class Storage:
     def _connect(self):
         if self._postgres_pool is not None:
             from .postgres import PostgresConnection
-            try:
-                return PostgresConnection(self._postgres_pool)
-            except Exception as exc:
-                raise sqlite3.OperationalError(
-                    "PostgreSQL connection unavailable"
-                ) from exc
+            last_error = None
+            for attempt in range(2):
+                try:
+                    return PostgresConnection(self._postgres_pool)
+                except sqlite3.OperationalError as exc:
+                    from .postgres import PoolTimeoutError
+                    if isinstance(exc, PoolTimeoutError):
+                        raise
+                    last_error = exc
+                except Exception as exc:
+                    last_error = exc
+                if attempt == 0:
+                    time.sleep(0.1)
+            raise sqlite3.OperationalError(
+                "PostgreSQL connection unavailable after retry"
+            ) from last_error
 
         conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
@@ -62,12 +72,40 @@ class Storage:
         return nullcontext() if self._postgres_pool is not None else self._write_lock
 
     def _init_schema(self) -> None:
+        try:
+            self._init_schema_once()
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if self._postgres_pool is None or not any(
+                marker in message
+                for marker in ("server closed the connection", "connection already closed")
+            ):
+                raise
+            import logging
+            logging.getLogger("nuvora").warning(
+                "PostgreSQL connection was lost during startup schema setup; retrying once"
+            )
+            self._init_schema_once()
+
+    def _init_schema_once(self) -> None:
         with closing(self._connect()) as conn:
             if self._postgres_pool is None:
                 # WAL is persistent database state. Setting it on every read
                 # connection requires locking and collapses under concurrency.
                 conn.execute("PRAGMA journal_mode=WAL;")
-            conn.executescript(SCHEMA)
+
+            # For PostgreSQL, handle schema initialization more carefully
+            if self._postgres_pool is not None:
+                # Run schema creation in smaller chunks to avoid timeouts
+                try:
+                    conn.executescript(SCHEMA)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("nuvora").exception("PostgreSQL schema initialization failed")
+                    raise RuntimeError("PostgreSQL schema initialization failed") from e
+            else:
+                # SQLite can handle the full script
+                conn.executescript(SCHEMA)
             with conn:
                 if self._postgres_pool is not None:
                     conn.execute(
@@ -78,6 +116,14 @@ class Storage:
                     )
                     conn.execute(
                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TEXT"
+                    )
+                    # Migration: Add role column for developer/employer distinction
+                    conn.execute(
+                        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'developer'"
+                    )
+                    # Update existing users to have role if NULL
+                    conn.execute(
+                        "UPDATE users SET role = 'developer' WHERE role IS NULL"
                     )
                 else:
                     columns = {
@@ -96,6 +142,8 @@ class Storage:
                         )
                     if "locked_until" not in user_columns:
                         conn.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
+                    if "role" not in user_columns:
+                        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'developer'")
                 conn.execute(
                     """
                     INSERT INTO schema_migrations (version, applied_at)
@@ -153,6 +201,18 @@ class Storage:
                     "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?) "
                     "ON CONFLICT(version) DO NOTHING",
                     (8, utc_now_iso()),
+                )
+                self._migration_9(conn)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?) "
+                    "ON CONFLICT(version) DO NOTHING",
+                    (9, utc_now_iso()),
+                )
+                self._migration_10(conn)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?) "
+                    "ON CONFLICT(version) DO NOTHING",
+                    (10, utc_now_iso()),
                 )
 
     def _columns(self, conn, table: str) -> set:
@@ -239,22 +299,78 @@ class Storage:
         if "github_connected_at" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN github_connected_at TEXT")
 
+    def _migration_9(self, conn) -> None:
+        """Add encrypted TOTP MFA state without changing existing accounts."""
+        columns = self._columns(conn, "users")
+        for name, definition in (
+            ("totp_secret_enc", "TEXT"),
+            ("totp_pending_enc", "TEXT"),
+            ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("totp_backup_hashes", "TEXT"),
+        ):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mfa_challenges (
+              token_hash TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              expires_at TEXT NOT NULL,
+              used_at TEXT
+            )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mfa_challenges_expiry ON mfa_challenges(expires_at)")
+
+    def _migration_10(self, conn) -> None:
+        """Ensure profile fields exist for databases created before migration 004."""
+        columns = self._columns(conn, "users")
+        for name, definition in (
+            ("headline", "TEXT NOT NULL DEFAULT ''"),
+            ("bio", "TEXT NOT NULL DEFAULT ''"),
+            ("location", "TEXT NOT NULL DEFAULT ''"),
+            ("website", "TEXT NOT NULL DEFAULT ''"),
+            ("github_handle", "TEXT NOT NULL DEFAULT ''"),
+            ("linkedin_url", "TEXT NOT NULL DEFAULT ''"),
+            ("skills", "TEXT NOT NULL DEFAULT '[]'"),
+            ("hidden_projects", "TEXT NOT NULL DEFAULT '[]'"),
+            ("is_public", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_username_public ON users(username, is_public)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_is_public ON users(is_public, updated_at DESC)"
+        )
+
     def close(self) -> None:
         if self._postgres_pool is not None:
-            self._postgres_pool.close()
+            self._postgres_pool.closeall()
 
-    def execute(self, sql: str, params: tuple = ()) -> None:
+    def execute(self, sql: str, params: tuple = ()) -> int:
         with self._write_guard(), closing(self._connect()) as conn:
             with conn:
-                conn.execute(sql, params)
+                cursor = conn.execute(sql, params)
+                try:
+                    return cursor.rowcount
+                finally:
+                    cursor.close()
 
     def fetchone(self, sql: str, params: tuple = ()):
         with closing(self._connect()) as conn:
-            return conn.execute(sql, params).fetchone()
+            cursor = conn.execute(sql, params)
+            try:
+                return cursor.fetchone()
+            finally:
+                cursor.close()
 
     def fetchall(self, sql: str, params: tuple = ()) -> list:
         with closing(self._connect()) as conn:
-            return conn.execute(sql, params).fetchall()
+            cursor = conn.execute(sql, params)
+            try:
+                return cursor.fetchall()
+            finally:
+                cursor.close()
 
     def read(self, callback: Callable[[Any], Any]) -> Any:
         """Run a group of related reads on one pooled connection."""
@@ -448,9 +564,10 @@ class Storage:
             "email": data["email"] if owner else None,
             "name": data["name"],
             "username": data["username"],
+            "role": data.get("role", "developer"),
             "avatarUrl": data.get("avatar_url"),
             "emailVerified": bool(data.get("email_verified")),
-            "githubConnected": bool(data.get("github_token_enc")),
+            "githubConnected": bool(data.get("github_token_enc") or data.get("github_id")),
             "isAdmin": bool(data.get("is_admin")),
             "createdAt": data["created_at"],
             "updatedAt": data["updated_at"],
@@ -509,11 +626,13 @@ class Storage:
             "project_id": data["project_id"],
             "type": data.get("type"),
             "text": data["title"],
+            "body": data.get("body") or "",
             "date": data["occurred_at"],
             "source": data.get("source") or "",
             "provenance": provenance,
             "stage": data.get("stage"),
             "public": bool(data.get("publish")),
+            "sensitive": bool(data.get("sensitive")),
             "created_at": data["created_at"],
         }
 

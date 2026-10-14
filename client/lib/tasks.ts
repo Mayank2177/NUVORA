@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import type { Stage } from "@/lib/store";
-import { api, fromApiStage } from "@/lib/api-client";
 
 export type Task = {
   id: string;
@@ -31,38 +31,159 @@ export const STAGE_INFO: Record<Stage, { question: string; tasks: string[]; exit
   Contribution: { question: "What can I give back?", tasks: ["Share what you learned", "Help someone starting out"], exit: "A contribution is credited to you.", tool: "Open source, community" },
 };
 
-const fromApiTask = (raw: unknown): Task => {
-  const t = raw as Record<string, unknown>;
-  return { id: String(t.id ?? ""), title: String(t.title ?? ""), stage: fromApiStage(String(t.stage ?? "Idea")) as Stage,
-    done: Boolean(t.done), createdAt: String(t.created_at ?? t.createdAt ?? ""), doneAt: typeof (t.done_at ?? t.doneAt) === "string" ? String(t.done_at ?? t.doneAt) : undefined };
+type ApiTask = {
+  id: string;
+  project_id: string;
+  title: string;
+  stage: Stage;
+  done: boolean;
+  created_at: string;
+  done_at?: string;
 };
 
-export function useTasks(pid: string | undefined, stage: Stage | undefined) {
-  const [tasks, setTasks] = useState<Task[] | null>(null);
-  const [reload, setReload] = useState(0);
+type TaskListResponse = {
+  tasks: ApiTask[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+};
 
-  useEffect(() => {
-    if (!pid || !stage) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setTasks(null);
-      return;
-    }
-    let cancelled = false;
-    setTasks(null);
-    api.tasks.list(pid).then(({ tasks }) => {
-      if (!cancelled) setTasks(tasks.map(fromApiTask));
-    }).catch((error) => { console.error("Could not load tasks from the API", error); if (!cancelled) setTasks([]); });
-    return () => { cancelled = true; };
-  }, [pid, stage, reload]);
-
-  const mutate = async (fn: () => Promise<unknown>) => { await fn(); setReload((r) => r + 1); };
-
+function toFrontendTask(apiTask: ApiTask): Task {
   return {
-    tasks,
-    addTask: (title: string, s: Stage) => mutate(() => api.tasks.create(pid!, { title, stage: s })),
-    toggleTask: (id: string) => mutate(() => api.tasks.toggle(id)),
-    removeTask: (id: string) => mutate(() => api.tasks.delete(id)),
+    id: apiTask.id,
+    title: apiTask.title,
+    stage: apiTask.stage,
+    done: apiTask.done,
+    createdAt: apiTask.created_at,
+    doneAt: apiTask.done_at,
   };
 }
 
+const EVENT = "nuvora:tasks";
 
+function notifyChange() {
+  window.dispatchEvent(new Event(EVENT));
+}
+
+export function useTasks(pid: string | undefined, stage: Stage | undefined) {
+  const [tasks, setTasks] = useState<Task[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchTasks = useCallback(async () => {
+    if (!pid) {
+      setTasks(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await api.get<TaskListResponse>(`/api/projects/${pid}/tasks?limit=100&order=desc`);
+      const fetchedTasks = response.tasks.map(toFrontendTask);
+      
+      // Auto-seed with suggested tasks if empty and we have a stage
+      if (fetchedTasks.length === 0 && stage) {
+        const suggested = STAGE_INFO[stage].tasks;
+        for (const title of suggested) {
+          await api.post(`/api/projects/${pid}/tasks`, { title, stage });
+        }
+        // Refetch after seeding
+        const refetch = await api.get<TaskListResponse>(`/api/projects/${pid}/tasks?limit=100&order=desc`);
+        setTasks(refetch.tasks.map(toFrontendTask));
+      } else {
+        setTasks(fetchedTasks);
+      }
+    } catch (error) {
+      console.error("Failed to fetch tasks:", error);
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [pid, stage]);
+
+  useEffect(() => {
+    void Promise.resolve().then(fetchTasks);
+    
+    const handleEvent = () => {
+      fetchTasks();
+    };
+
+    window.addEventListener(EVENT, handleEvent);
+    return () => {
+      window.removeEventListener(EVENT, handleEvent);
+    };
+  }, [fetchTasks]);
+
+  const addTask = useCallback(
+    async (title: string, s: Stage) => {
+      if (!pid) return;
+
+      const tempTask: Task = {
+        id: crypto.randomUUID(),
+        title,
+        stage: s,
+        done: false,
+        createdAt: new Date().toISOString(),
+      };
+
+      setTasks(prev => prev ? [...prev, tempTask] : [tempTask]);
+
+      try {
+        const response = await api.post<{ task: ApiTask }>(`/api/projects/${pid}/tasks`, { title, stage: s });
+        setTasks(prev => prev ? prev.map(t => t.id === tempTask.id ? toFrontendTask(response.task) : t) : [toFrontendTask(response.task)]);
+        notifyChange();
+      } catch (error) {
+        console.error("Failed to add task:", error);
+        fetchTasks();
+      }
+    },
+    [pid, fetchTasks],
+  );
+
+  const toggleTask = useCallback(
+    async (id: string) => {
+      if (!pid) return;
+
+      setTasks(prev => prev ? prev.map(x => 
+        x.id === id ? { ...x, done: !x.done, doneAt: x.done ? undefined : new Date().toISOString() } : x
+      ) : null);
+
+      try {
+        await api.patch(`/api/tasks/${id}/toggle`, {});
+        notifyChange();
+      } catch (error) {
+        console.error("Failed to toggle task:", error);
+        fetchTasks();
+      }
+    },
+    [pid, fetchTasks],
+  );
+
+  const removeTask = useCallback(
+    async (id: string) => {
+      if (!pid) return;
+
+      setTasks(prev => prev ? prev.filter(x => x.id !== id) : null);
+
+      try {
+        await api.delete(`/api/projects/${pid}/tasks/${id}`);
+        notifyChange();
+      } catch (error) {
+        console.error("Failed to remove task:", error);
+        fetchTasks();
+      }
+    },
+    [pid, fetchTasks],
+  );
+
+  return {
+    tasks,
+    loading,
+    addTask,
+    toggleTask,
+    removeTask,
+    refresh: fetchTasks,
+  };
+}

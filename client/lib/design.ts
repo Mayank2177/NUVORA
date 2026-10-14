@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import type { Stage } from "@/lib/store";
-import { api, fromApiStage } from "@/lib/api-client";
 
 export const KINDS = ["Wireframe", "Mockup", "Flow", "Diagram", "Other"] as const;
 export const TOOLS = ["Figma", "Excalidraw", "tldraw", "Balsamiq", "Penpot", "draw.io", "Mermaid", "Other"] as const;
@@ -22,28 +22,72 @@ export type Design = {
 };
 
 export type DecisionRec = { id: string; decision: string; reason: string; stage: Stage; createdAt: string };
-type Store = { designs: Design[]; decisions: DecisionRec[] };
 
-type ApiDesign = Omit<Design, "stage" | "createdAt" | "image"> & {
-  stage: string;
+type ApiDesign = {
+  id: string;
+  project_id: string;
+  title: string;
+  kind: Kind;
+  tool: Tool;
+  url: string;
+  image?: string;
+  note: string;
+  stage: Stage;
   created_at: string;
-  image?: string | null; // API may send null
 };
 
-type ApiDecision = Omit<DecisionRec, "stage" | "createdAt"> & {
-  stage: string;
+type ApiDecision = {
+  id: string;
+  project_id: string;
+  decision: string;
+  reason: string;
+  stage: Stage;
   created_at: string;
 };
 
-const mapDesign = (raw: unknown): Design => {
-  const d = raw as ApiDesign & { createdAt?: string };
-  return { ...d, image: d.image ?? undefined, stage: fromApiStage(d.stage) as Stage, createdAt: d.created_at ?? d.createdAt ?? "" };
+type DesignListResponse = {
+  designs: ApiDesign[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
 };
 
-const mapDecision = (raw: unknown): DecisionRec => {
-  const d = raw as ApiDecision & { createdAt?: string };
-  return { ...d, stage: fromApiStage(d.stage) as Stage, createdAt: d.created_at ?? d.createdAt ?? "" };
+type DecisionListResponse = {
+  decisions: ApiDecision[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
 };
+
+function toFrontendDesign(apiDesign: ApiDesign): Design {
+  return {
+    id: apiDesign.id,
+    title: apiDesign.title,
+    kind: apiDesign.kind,
+    tool: apiDesign.tool,
+    url: apiDesign.url,
+    image: apiDesign.image,
+    note: apiDesign.note,
+    stage: apiDesign.stage,
+    createdAt: apiDesign.created_at,
+  };
+}
+
+function toFrontendDecision(apiDecision: ApiDecision): DecisionRec {
+  return {
+    id: apiDecision.id,
+    decision: apiDecision.decision,
+    reason: apiDecision.reason,
+    stage: apiDecision.stage,
+    createdAt: apiDecision.created_at,
+  };
+}
 
 export function detectTool(url: string): Tool | null {
   const u = url.toLowerCase();
@@ -89,36 +133,175 @@ export function resizeImage(file: File, max = 1200): Promise<string> {
   });
 }
 
-export function useDesign(pid: string | undefined) {
-  const [store, setStore] = useState<{ pid: string; data: Store } | null>(null);
-  const [reload, setReload] = useState(0);
+const EVENT = "nuvora:design";
 
-  useEffect(() => {
-    if (!pid) return;
-    let cancelled = false;
-    Promise.all([api.designs.list(pid), api.decisions.list(pid)])
-      .then(([d, r]) => {
-        if (!cancelled) setStore({ pid, data: { designs: d.designs.map(mapDesign), decisions: r.decisions.map(mapDecision) } });
-      })
-      .catch((error) => {
-        console.error("Could not load design data from the API", error);
-        if (!cancelled) setStore({ pid, data: { designs: [], decisions: [] } });
-      });
-    return () => { cancelled = true; };
-  }, [pid, reload]);
-
-  const current = pid && store?.pid === pid ? store.data : null;
-
-  const mutate = async (fn: () => Promise<unknown>) => { await fn(); setReload((r) => r + 1); return true; };
-
-  return {
-    designs: current?.designs ?? null,
-    decisions: current?.decisions ?? null,
-    addDesign: (d: Omit<Design, "id" | "createdAt">) =>
-      mutate(() => api.designs.create(pid!, d)),
-    removeDesign: (id: string) => mutate(() => api.designs.delete(id)),
-    addDecision: (d: Omit<DecisionRec, "id" | "createdAt">) => mutate(() => api.decisions.create(pid!, d)),
-    removeDecision: (id: string) => mutate(() => api.decisions.delete(id)),
-  };
+function notifyChange() {
+  window.dispatchEvent(new Event(EVENT));
 }
 
+export function useDesign(pid: string | undefined) {
+  const [designs, setDesigns] = useState<Design[] | null>(null);
+  const [decisions, setDecisions] = useState<DecisionRec[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    if (!pid) {
+      setDesigns(null);
+      setDecisions(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const [designsRes, decisionsRes] = await Promise.all([
+        api.get<DesignListResponse>(`/api/projects/${pid}/designs?limit=100&order=desc`),
+        api.get<DecisionListResponse>(`/api/projects/${pid}/decisions?limit=100&order=desc`),
+      ]);
+
+      setDesigns(designsRes.designs.map(toFrontendDesign));
+      setDecisions(decisionsRes.decisions.map(toFrontendDecision));
+    } catch (error) {
+      console.error("Failed to fetch designs/decisions:", error);
+      setError("Could not load designs and decisions. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [pid]);
+
+  useEffect(() => {
+    void Promise.resolve().then(fetchData);
+
+    const handleEvent = () => {
+      fetchData();
+    };
+
+    window.addEventListener(EVENT, handleEvent);
+    return () => {
+      window.removeEventListener(EVENT, handleEvent);
+    };
+  }, [fetchData]);
+
+  const addDesign = useCallback(
+    async (d: Omit<Design, "id" | "createdAt">) => {
+      if (!pid) return false;
+
+      const tempDesign: Design = {
+        ...d,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      };
+
+      setDesigns(prev => prev ? [tempDesign, ...prev] : [tempDesign]);
+
+      try {
+        const response = await api.post<{ design: ApiDesign }>(`/api/projects/${pid}/designs`, {
+          title: d.title,
+          kind: d.kind,
+          tool: d.tool,
+          url: d.url,
+          image: d.image,
+          note: d.note,
+          stage: d.stage,
+        });
+
+        setDesigns(prev => prev ? prev.map(design => 
+          design.id === tempDesign.id ? toFrontendDesign(response.design) : design
+        ) : [toFrontendDesign(response.design)]);
+
+        notifyChange();
+        return true;
+      } catch (error) {
+        console.error("Failed to add design:", error);
+        fetchData();
+        return false;
+      }
+    },
+    [pid, fetchData],
+  );
+
+  const removeDesign = useCallback(
+    async (id: string) => {
+      if (!pid) return false;
+
+      setDesigns(prev => prev ? prev.filter(d => d.id !== id) : null);
+
+      try {
+        await api.delete(`/api/designs/${id}`);
+        notifyChange();
+        return true;
+      } catch (error) {
+        console.error("Failed to remove design:", error);
+        fetchData();
+        return false;
+      }
+    },
+    [pid, fetchData],
+  );
+
+  const addDecision = useCallback(
+    async (d: Omit<DecisionRec, "id" | "createdAt">) => {
+      if (!pid) return false;
+
+      const tempDecision: DecisionRec = {
+        ...d,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      };
+
+      setDecisions(prev => prev ? [tempDecision, ...prev] : [tempDecision]);
+
+      try {
+        const response = await api.post<{ decision: ApiDecision }>(`/api/projects/${pid}/decisions`, {
+          decision: d.decision,
+          reason: d.reason,
+          stage: d.stage,
+        });
+
+        setDecisions(prev => prev ? prev.map(dec => 
+          dec.id === tempDecision.id ? toFrontendDecision(response.decision) : dec
+        ) : [toFrontendDecision(response.decision)]);
+
+        notifyChange();
+        return true;
+      } catch (error) {
+        console.error("Failed to add decision:", error);
+        fetchData();
+        return false;
+      }
+    },
+    [pid, fetchData],
+  );
+
+  const removeDecision = useCallback(
+    async (id: string) => {
+      if (!pid) return false;
+
+      setDecisions(prev => prev ? prev.filter(d => d.id !== id) : null);
+
+      try {
+        await api.delete(`/api/decisions/${id}`);
+        notifyChange();
+        return true;
+      } catch (error) {
+        console.error("Failed to remove decision:", error);
+        fetchData();
+        return false;
+      }
+    },
+    [pid, fetchData],
+  );
+
+  return {
+    designs,
+    decisions,
+    loading,
+    error,
+    addDesign,
+    removeDesign,
+    addDecision,
+    removeDecision,
+    refresh: fetchData,
+  };
+}

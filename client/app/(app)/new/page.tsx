@@ -3,15 +3,16 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, ArrowRight, Check, FileText, GitCommit, Loader2 } from "lucide-react";
 import { STAGES, useProjects, type Stage } from "@/lib/store";
+import { api } from "@/lib/api";
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 type Fields = { name: string; goal: string; users: string; constraints: string; stage: Stage; repo: string };
 type Errors = Partial<Record<keyof Fields, string>>;
-type Repo = { status: "idle" | "checking" | "ok" | "error"; message?: string };
+type Repo = { status: "idle" | "checking" | "ok" | "error"; commits?: number; prs?: number; message?: string };
 
 const inputCls = (invalid: boolean) =>
   `w-full rounded-xl border bg-white px-4 py-3 text-slate-900 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-4 ${
@@ -26,22 +27,24 @@ function Field({ id, label, hint, error, children }: { id: string; label: string
       {hint && !error && <p className="mt-1.5 text-xs text-slate-500">{hint}</p>}
       <AnimatePresence>
         {error && (
-          <motion.p id={`${id}-error`} role="alert" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+          <m.p id={`${id}-error`} role="alert" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
             className="mt-1.5 flex items-center gap-1.5 overflow-hidden text-sm text-rose-600">
             <AlertCircle size={14} /> {error}
-          </motion.p>
+          </m.p>
         )}
       </AnimatePresence>
     </div>
   );
 }
 
-const PreviewLine = ({ h, v, placeholder }: { h: string; v: string; placeholder: string }) => (
-  <div className="mt-3">
-    <p className="font-semibold text-slate-900">## {h}</p>
-    {v.trim() ? <p className="whitespace-pre-wrap break-words text-slate-700">{v}</p> : <p className="italic text-slate-300">{placeholder}</p>}
-  </div>
-);
+function PreviewLine({ h, v, placeholder }: { h: string; v: string; placeholder: string }) {
+  return (
+    <div className="mt-3">
+      <p className="font-semibold text-slate-900">## {h}</p>
+      {v.trim() ? <p className="whitespace-pre-wrap break-words text-slate-700">{v}</p> : <p className="italic text-slate-300">{placeholder}</p>}
+    </div>
+  );
+}
 
 function Preview({ f }: { f: Fields }) {
   return (
@@ -59,7 +62,7 @@ function Preview({ f }: { f: Fields }) {
         <PreviewLine h="Constraints" v={f.constraints} placeholder="Time, team size, budget…" />
         <div className="mt-3">
           <p className="font-semibold text-slate-900">## Current Stage</p>
-          <motion.p key={f.stage} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="text-brand-600">{f.stage}</motion.p>
+          <m.p key={f.stage} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="text-brand-600">{f.stage}</m.p>
         </div>
         {f.repo.trim() && <PreviewLine h="Repository" v={f.repo} placeholder="" />}
       </div>
@@ -69,11 +72,13 @@ function Preview({ f }: { f: Fields }) {
 
 export default function NewProjectPage() {
   const router = useRouter();
-  const { projects, create } = useProjects();
+  const { projects, create } = useProjects((s) => ({ projects: s.projects, create: s.create }));
   const [f, setF] = useState<Fields>({ name: "", goal: "", users: "", constraints: "", stage: "Idea", repo: "" });
   const [errors, setErrors] = useState<Errors>({});
   const [repo, setRepo] = useState<Repo>({ status: "idle" });
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const first = projects.length === 0;
 
   const set = (k: keyof Fields) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -82,18 +87,26 @@ export default function NewProjectPage() {
     if (k === "repo") setRepo({ status: "idle" });
   };
 
-  function connectRepo() {
+  async function connectRepo() {
     const v = f.repo.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, "");
     if (!/^[\w.-]+\/[\w.-]+$/.test(v)) {
       setRepo({ status: "error", message: "Use the format owner/repository, like ada/eduboost-ai." });
       return;
     }
-    setF((p) => ({ ...p, repo: v }));
-    setRepo({ status: "ok" });
+    setRepo({ status: "checking" });
+    try {
+      const response = await api.get(`/api/integrations/github/repo?repo=${encodeURIComponent(v)}`, { auth: false, fresh: true });
+      const data = response as { commits: number; prs: number };
+      setF((p) => ({ ...p, repo: v }));
+      setRepo({ status: "ok", commits: data.commits, prs: data.prs });
+    } catch {
+      setRepo({ status: "error", message: "Could not connect to GitHub. Check the repository and try again." });
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return; // ignore double clicks / Enter pressed twice
     const errs: Errors = {};
     if (f.name.trim().length < 2) errs.name = "Give your project a name.";
     if (f.goal.trim().length < 10) errs.goal = "Describe the goal in at least a sentence.";
@@ -102,13 +115,20 @@ export default function NewProjectPage() {
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
+    setSubmitError(null);
+    setSubmitting(true);
     try {
+      // Wait for the server. Before, this was fire-and-forget: the success screen and the
+      // redirect ran on a timer, so a slow request sent people to a page that didn't know
+      // about the project yet (which bounced them back to /new), and a failed request
+      // still said "ready".
       await create({
         name: f.name.trim(), goal: f.goal.trim(), users: f.users.trim(), constraints: f.constraints.trim(),
         stage: f.stage, repo: repo.status === "ok" ? f.repo : null,
       });
-    } catch (error) {
-      setErrors((current) => ({ ...current, name: error instanceof Error ? error.message : "Could not create project." }));
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Could not create the project. Please try again.");
+      setSubmitting(false);
       return;
     }
     setDone(true);
@@ -117,22 +137,22 @@ export default function NewProjectPage() {
 
   if (done) {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, ease: EASE }}
+      <m.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, ease: EASE }}
         className="grid min-h-[60vh] place-items-center text-center">
         <div>
-          <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 16, delay: 0.1 }}
+          <m.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 16, delay: 0.1 }}
             className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600">
             <Check size={30} strokeWidth={2.5} />
-          </motion.span>
+          </m.span>
           <h1 className="mt-6 text-2xl font-semibold">{f.name} is ready.</h1>
           <p className="mt-2 text-slate-600">Opening your project overview…</p>
         </div>
-      </motion.div>
+      </m.div>
     );
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
+    <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
       <h1 className="text-3xl font-semibold">{first ? "Set up your first project" : "Create a new project"}</h1>
       <p className="mt-2 max-w-xl text-slate-600">
         Tell Nuvora what you&apos;re building. This becomes the context every tool and every stage of your journey shares.
@@ -168,7 +188,7 @@ export default function NewProjectPage() {
                 return (
                   <button key={s} type="button" role="radio" aria-checked={on} onClick={() => setF((p) => ({ ...p, stage: s }))}
                     className={`relative rounded-full px-4 py-2 text-sm font-medium transition-colors ${on ? "text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-                    {on && <motion.span layoutId="new-stage" className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
+                    {on && <m.span className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
                     <span className="relative">{s}</span>
                   </button>
                 );
@@ -188,24 +208,25 @@ export default function NewProjectPage() {
             </div>
             <AnimatePresence>
               {repo.status === "ok" && (
-                <motion.p role="status" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                <m.p role="status" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                   className="mt-2 flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">
-                  <Check size={16} className="shrink-0" /> Repository saved. Sync its activity after creating the project.
-                </motion.p>
+                  <Check size={16} className="shrink-0" /> Found {repo.commits} commits and {repo.prs} pull requests. They&apos;ll appear as evidence.
+                </m.p>
               )}
               {repo.status === "error" && (
-                <motion.p role="alert" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-2 flex items-center gap-1.5 text-sm text-rose-600">
+                <m.p role="alert" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-2 flex items-center gap-1.5 text-sm text-rose-600">
                   <AlertCircle size={14} /> {repo.message}
-                </motion.p>
+                </m.p>
               )}
             </AnimatePresence>
           </Field>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
-            <motion.button type="submit" whileTap={{ scale: 0.98 }}
-              className="group inline-flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow-lg shadow-brand-600/20 transition-colors hover:bg-brand-700">
-              Create project <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
-            </motion.button>
+            <m.button type="submit" whileTap={{ scale: 0.98 }} disabled={submitting} aria-busy={submitting}
+              className="group inline-flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white shadow-lg shadow-brand-600/20 transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60">
+              {submitting ? "Creating…" : "Create project"} <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+            </m.button>
+            {submitError && <p role="alert" className="basis-full text-sm font-medium text-red-600">{submitError}</p>}
             {!first && <Link href="/dashboard" className="px-3 py-3 text-sm font-medium text-slate-600 hover:text-slate-900">Cancel</Link>}
           </div>
         </form>
@@ -215,7 +236,6 @@ export default function NewProjectPage() {
           <Preview f={f} />
         </div>
       </div>
-    </motion.div>
+    </m.div>
   );
 }
-

@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from storage.utils import json_loads
+from src.storage.utils import json_loads
 
 
 def load_project_context(storage, project_id: str, user_id: str) -> dict[str, Any]:

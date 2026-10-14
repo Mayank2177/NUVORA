@@ -1,36 +1,19 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { Layers, Loader2, Menu } from "lucide-react";
-import { useSession } from "@/lib/auth";
+import { usePathname } from "next/navigation";
+import { Layers, Menu } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const user = useSession();
-  const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [prevPath, setPrevPath] = useState(pathname);
-  
-  // Close drawer on navigation (adjust state during render)
+
   if (pathname !== prevPath) {
     setPrevPath(pathname);
     setOpen(false);
-  }
-
-  // Frontend-only route guard
-  useEffect(() => {
-    if (user === null) router.replace("/login");
-  }, [user, router]);
-
-  if (!user) {
-    return (
-      <div className="grid min-h-screen place-items-center text-slate-500" role="status">
-        <Loader2 className="animate-spin" aria-label="Loading" />
-      </div>
-    );
   }
 
   return (
@@ -50,7 +33,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="w-10" />
         </header>
         <main id="main" className={`mx-auto px-5 py-8 sm:px-8 sm:py-10 ${pathname.startsWith("/build/workspace") ? "max-w-[1400px]" : "max-w-5xl"}`}>
-          {children}
+          <Suspense fallback={<div className="animate-pulse space-y-5" role="status" aria-label="Loading content"><div className="h-8 w-48 rounded-lg bg-slate-200" /><div className="h-64 rounded-2xl bg-slate-100" /></div>}>
+            {children}
+          </Suspense>
         </main>
       </div>
     </div>

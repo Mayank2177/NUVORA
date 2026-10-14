@@ -3,17 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, Bot, Check, FlaskConical, GitBranch, GitCommit, GitPullRequest, Loader2, RefreshCw, Code2, ArrowRight } from "lucide-react";
-import { useSession } from "@/lib/auth";
 import { useProjects } from "@/lib/store";
+import { api } from "@/lib/api";
 import { PROV_STYLE, TYPE_ICON, useProjectData, type Evidence } from "@/lib/data";
-import { api } from "@/lib/api-client";
-import { ConnectGithubButton } from "@/components/connect-github-button";
-import { GithubNotice } from "@/components/github-notice";
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+const PENDING_GITHUB_REPO = "nuvora:pending-github-repo";
 const BUILD_TYPES: Evidence["type"][] = ["Commit", "Pull request", "Test"];
 
 const inputCls =
@@ -30,7 +28,7 @@ function Skeleton() {
   return (
     <div className="animate-pulse space-y-4" role="status" aria-label="Loading build activity">
       <div className="h-10 w-48 rounded-xl bg-slate-200/60" />
-      <div className="grid gap-4 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-24 rounded-2xl bg-slate-200/60" />)}</div>
+      <div className="grid gap-4 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={`placeholder-${i}`} className="h-24 rounded-2xl bg-slate-200/60" />)}</div>
       <div className="h-64 rounded-3xl bg-slate-200/60" />
     </div>
   );
@@ -38,12 +36,12 @@ function Skeleton() {
 
 export default function BuildPage() {
   const router = useRouter();
-  const user = useSession();
-  const { projects, active, ready, update } = useProjects();
-  const { data, addEvidence, refresh } = useProjectData(active);
+  const { projects, active, ready, update } = useProjects((s) => ({ projects: s.projects, active: s.active, ready: s.ready, update: s.update }));
+  const { data, addEvidence } = useProjectData(active);
 
   const [repoInput, setRepoInput] = useState("");
   const [repoError, setRepoError] = useState("");
+  const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [flash, setFlash] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -64,6 +62,36 @@ export default function BuildPage() {
     () => (data?.evidence ?? []).filter((e) => BUILD_TYPES.includes(e.type)).sort((a, b) => +new Date(b.date) - +new Date(a.date)),
     [data],
   );
+
+  useEffect(() => {
+    if (!ready || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const githubStatus = params.get("github");
+    if (!githubStatus) return;
+
+    const finishConnection = async () => {
+      const pending = sessionStorage.getItem(PENDING_GITHUB_REPO);
+      sessionStorage.removeItem(PENDING_GITHUB_REPO);
+      window.history.replaceState(null, "", window.location.pathname);
+      if (githubStatus !== "connected" || !pending) {
+        setRepoError("GitHub connection did not complete. Please try again.");
+        return;
+      }
+
+      try {
+        const { projectId, repo } = JSON.parse(pending) as { projectId: string; repo: string };
+        if (!projects.some((project) => project.id === projectId) || !REPO_RE.test(repo)) {
+          throw new Error("The pending repository is no longer available.");
+        }
+        await update(projectId, { repo });
+        setFlash(`Connected ${repo}. Press Sync to import activity.`);
+      } catch {
+        setRepoError("GitHub connected, but the repository could not be saved. Please try again.");
+      }
+    };
+
+    void finishConnection();
+  }, [projects, ready, update]);
 
   if (!ready || !active || !data) return <Skeleton />;
 
@@ -95,35 +123,32 @@ export default function BuildPage() {
     e.preventDefault();
     const v = repoInput.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, "");
     if (!REPO_RE.test(v)) return setRepoError("Use the format owner/repository, like ada/eduboost-ai.");
+    setRepoError("");
+    setConnecting(true);
     try {
-      await update(active!.id, { repo: v });
-      setRepoInput("");
-      setRepoError("");
-      setFlash(`Connected ${v}. Press Sync to import activity.`);
-    } catch (error) {
-      console.error("Failed to update repository", error);
-      setRepoError("Failed to connect repository. Please try again.");
+      sessionStorage.setItem(PENDING_GITHUB_REPO, JSON.stringify({ projectId: active!.id, repo: v }));
+      const { authorizeUrl } = await api.get<{ authorizeUrl: string }>("/api/integrations/github/authorize", { fresh: true });
+      window.location.assign(authorizeUrl);
+    } catch {
+      sessionStorage.removeItem(PENDING_GITHUB_REPO);
+      setConnecting(false);
+      setRepoError("Could not start GitHub authorization. Check the server connection and try again.");
     }
   }
 
-    async function sync() {
+  async function sync() {
     if (!active?.repo) return;
     setSyncing(true);
     try {
-      const result = await api.github.sync(active.id, active.repo);
+      await api.post<{ queued: boolean; jobId: string }>(`/api/projects/${active.id}/sync`, {
+        repoUrl: `https://github.com/${active.repo}`,
+        branch: "main",
+      });
+      setFlash("GitHub sync queued. New activity will appear shortly.");
+    } catch {
+      setFlash("Failed to sync with GitHub. Check your connection and try again.");
+    } finally {
       setSyncing(false);
-      setFlash(result.inserted > 0
-        ? `Imported ${result.inserted} new commit${result.inserted > 1 ? "s" : ""}.`
-        : "Already up to date.");
-      await refresh();
-    } catch (error) {
-      setSyncing(false);
-      if (!user?.githubConnected) {
-        setFlash("GitHub not connected.");
-      } else {
-        setFlash("Failed to sync commits. Please try again.");
-      }
-      console.error("GitHub sync error:", error);
     }
   }
 
@@ -142,9 +167,7 @@ export default function BuildPage() {
 
   return (
     <div className="space-y-6">
-      <GithubNotice />
-
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
         className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Build</h1>
@@ -156,20 +179,11 @@ export default function BuildPage() {
             <RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync from GitHub"}
           </button>
         )}
-      </motion.div>
+      </m.div>
 
       {/* Repo connection */}
-      <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06, duration: 0.5, ease: EASE }}
+      <m.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06, duration: 0.5, ease: EASE }}
         className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-        {!user?.githubConnected && (
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <p className="text-sm font-medium text-amber-900">Connect GitHub to sync commits</p>
-            <p className="mt-1 text-sm text-amber-700">Authorize Nuvora to read your repository activity (read-only access).</p>
-            <div className="mt-3">
-              <ConnectGithubButton />
-            </div>
-          </div>
-        )}
         {active.repo ? (
           <div className="flex flex-wrap items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-white"><GitBranch size={18} /></span>
@@ -177,7 +191,7 @@ export default function BuildPage() {
               <p className="truncate font-mono text-sm font-semibold">{active.repo}</p>
               <p className="text-xs text-slate-500">Connected · read-only. Nuvora never writes to your repository.</p>
             </div>
-            <button onClick={() => void update(active.id, { repo: null })} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-rose-600">Disconnect</button>
+            <button onClick={() => update(active.id, { repo: null })} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-rose-600">Disconnect</button>
           </div>
         ) : (
           <form onSubmit={connect} noValidate>
@@ -186,22 +200,12 @@ export default function BuildPage() {
             <div className="mt-4 flex gap-2">
               <input value={repoInput} onChange={(e) => { setRepoInput(e.target.value); setRepoError(""); }} placeholder="owner/repository" aria-label="Repository"
                 aria-invalid={!!repoError} className={inputCls} />
-              <button type="submit" disabled={!repoInput.trim()} className="shrink-0 rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-50">Connect</button>
+              <button type="submit" disabled={!repoInput.trim() || connecting} className="shrink-0 rounded-xl bg-brand-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-50">{connecting ? "Connecting…" : "Connect"}</button>
             </div>
             {repoError && <p role="alert" className="mt-2 flex items-center gap-1.5 text-sm text-rose-600"><AlertCircle size={14} /> {repoError}</p>}
           </form>
         )}
-      </motion.section>
-
-      {/* Code workspace link */}
-      <Link href="/build/workspace" className="group flex flex-wrap items-center gap-4 rounded-3xl bg-slate-900 p-6 text-white transition-colors hover:bg-slate-800">
-        <span className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Code2 size={20} /></span>
-        <div className="min-w-0 flex-1 basis-56">
-          <p className="font-semibold">Open the code workspace</p>
-          <p className="text-sm text-slate-300">Write code, run tests and get AI help. Everything you do is saved as evidence.</p>
-        </div>
-        <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
-      </Link>
+      </m.section>
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -211,11 +215,20 @@ export default function BuildPage() {
           { label: "Test runs", n: `${tests}`, icon: FlaskConical },
           { label: "AI-assisted", n: `${aiShare}%`, icon: Bot },
         ].map((s, i) => (
-          <motion.div key={s.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.05, duration: 0.5, ease: EASE }}
+          <m.div key={s.label} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.05, duration: 0.5, ease: EASE }}
             className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+              <Link href="/build/workspace" className="group flex flex-wrap items-center gap-4 rounded-3xl bg-slate-900 p-6 text-white transition-colors hover:bg-slate-800">
+              <span className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Code2 size={20} /></span>
+              <div className="min-w-0 flex-1 basis-56">
+                <p className="font-semibold">Open the code workspace</p>
+                <p className="text-sm text-slate-300">Write code, run tests and get AI help. Everything you do is saved as evidence.</p>
+              </div>
+              <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+            </Link>
             <div className="flex items-center justify-between text-slate-500"><p className="text-sm">{s.label}</p><s.icon size={16} /></div>
             <p className="mt-2 text-3xl font-semibold">{s.n}</p>
-          </motion.div>
+          </m.div>
+          
         ))}
       </div>
 
@@ -230,7 +243,7 @@ export default function BuildPage() {
           <div className="mt-4" aria-label="Activity over the last 14 days">
             <div className="flex gap-1.5" role="img" aria-label={days.map((d) => `${d.label}: ${d.n}`).join(", ")}>
               {days.map((d, i) => (
-                <motion.span key={d.label} title={`${d.label}: ${d.n} item${d.n === 1 ? "" : "s"}`}
+                <m.span key={d.label} title={`${d.label}: ${d.n} item${d.n === 1 ? "" : "s"}`}
                   initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 + i * 0.03 }}
                   className={`h-7 flex-1 rounded-md ${heat[Math.min(d.n, 3)]}`} />
               ))}
@@ -249,7 +262,7 @@ export default function BuildPage() {
                 {shown.map((e) => {
                   const Icon = TYPE_ICON[e.type];
                   return (
-                    <motion.li key={e.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.35, ease: EASE }}
+                    <m.li key={e.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.35, ease: EASE }}
                       className="flex gap-3 rounded-xl p-2.5 transition-colors hover:bg-slate-50">
                       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600"><Icon size={17} /></span>
                       <div className="min-w-0 flex-1">
@@ -259,7 +272,7 @@ export default function BuildPage() {
                         </div>
                         <p className="text-xs text-slate-500">{e.type} · {rel(e.date)} · {e.source}</p>
                       </div>
-                    </motion.li>
+                    </m.li>
                   );
                 })}
               </AnimatePresence>
@@ -281,7 +294,7 @@ export default function BuildPage() {
             </div>
             <p className="mt-1 text-sm text-slate-500">What a finished build usually has on record.</p>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={exit.length} aria-label="Build checklist progress">
-              <motion.div className="h-full rounded-full bg-brand-600" initial={{ width: 0 }} animate={{ width: `${(done / exit.length) * 100}%` }} transition={{ duration: 0.8, ease: EASE }} />
+              <m.div className="h-full rounded-full bg-brand-600" initial={{ width: 0 }} animate={{ width: `${(done / exit.length) * 100}%` }} transition={{ duration: 0.8, ease: EASE }} />
             </div>
             <ul className="mt-4 space-y-2.5">
               {exit.map((x) => (
@@ -317,11 +330,11 @@ export default function BuildPage() {
 
       <AnimatePresence>
         {(flash || syncing) && (
-          <motion.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+          <m.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
             className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2.5 rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-2xl">
             {syncing ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} className="text-emerald-400" />}
             {syncing ? "Reading repository activity…" : flash}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

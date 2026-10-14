@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertTriangle, ArrowRight, Check, CheckCircle2, Plus, Trash2, X } from "lucide-react";
 import { useProjects } from "@/lib/store";
 import { useProjectData, type Blocker } from "@/lib/data";
@@ -42,8 +42,7 @@ function BlockerCard({ b, onAttempt, onResolve, onRemove }: { b: Blocker } & Han
   const open = b.status === "open";
 
   return (
-    <motion.li
-      layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }}
+    <m.li initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }}
       transition={{ duration: 0.4, ease: EASE }}
       className={`rounded-3xl border p-6 shadow-sm ${open ? "border-amber-100 bg-white" : "border-emerald-100 bg-white"}`}
     >
@@ -104,7 +103,7 @@ function BlockerCard({ b, onAttempt, onResolve, onRemove }: { b: Blocker } & Han
         <div className="mt-5 border-t border-slate-100 pt-4">
           <AnimatePresence mode="wait" initial={false}>
             {mode === "resolve" ? (
-              <motion.form key="f" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              <m.form key="f" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                 onSubmit={(e) => { e.preventDefault(); if (solution.trim()) { onResolve(b.id, solution.trim()); } }} className="space-y-3">
                 <label htmlFor={`sol-${b.id}`} className="block text-sm font-medium text-slate-700">What fixed it?</label>
                 <textarea id={`sol-${b.id}`} autoFocus rows={3} value={solution} onChange={(e) => setSolution(e.target.value)}
@@ -114,12 +113,12 @@ function BlockerCard({ b, onAttempt, onResolve, onRemove }: { b: Blocker } & Han
                   <button type="button" onClick={() => setMode("idle")} className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900">Cancel</button>
                 </div>
                 <p className="text-xs text-slate-500">The fix is saved to your evidence timeline as a private item.</p>
-              </motion.form>
+              </m.form>
             ) : (
-              <motion.button key="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMode("resolve")}
+              <m.button key="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMode("resolve")}
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600">
                 <Check size={16} /> Resolve this blocker
-              </motion.button>
+              </m.button>
             )}
           </AnimatePresence>
         </div>
@@ -132,7 +131,7 @@ function BlockerCard({ b, onAttempt, onResolve, onRemove }: { b: Blocker } & Han
           </Link>
         </div>
       )}
-    </motion.li>
+    </m.li>
   );
 }
 
@@ -140,7 +139,7 @@ function BlockerCard({ b, onAttempt, onResolve, onRemove }: { b: Blocker } & Han
 
 export default function BlockersPage() {
   const router = useRouter();
-  const { projects, active, ready } = useProjects();
+  const { projects, active, ready } = useProjects((s) => ({ projects: s.projects, active: s.active, ready: s.ready }));
   const { data, addBlocker, resolveBlocker, addAttempt, removeBlocker } = useProjectData(active);
   const [tab, setTab] = useState<"open" | "resolved">("open");
   const [title, setTitle] = useState("");
@@ -154,7 +153,7 @@ export default function BlockersPage() {
       <div className="animate-pulse space-y-4" role="status" aria-label="Loading blockers">
         <div className="h-10 w-56 rounded-xl bg-slate-200/60" />
         <div className="h-20 rounded-3xl bg-slate-200/60" />
-        {[0, 1].map((i) => <div key={i} className="h-56 rounded-3xl bg-slate-200/60" />)}
+        {[0, 1].map((i) => <div key={`placeholder-${i}`} className="h-56 rounded-3xl bg-slate-200/60" />)}
       </div>
     );
   }
@@ -173,14 +172,14 @@ export default function BlockersPage() {
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
         <h1 className="text-3xl font-semibold">Blockers</h1>
         <p className="mt-2 max-w-xl text-slate-600">
           Record what&apos;s stopping you on {active.name}, what you tried, and how you fixed it. Every resolved blocker becomes evidence of how you solve problems.
         </p>
-      </motion.div>
+      </m.div>
 
-      <motion.form onSubmit={submit} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.5, ease: EASE }}
+      <m.form onSubmit={submit} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.5, ease: EASE }}
         className="flex flex-wrap gap-3 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
         <label htmlFor="new-blocker" className="sr-only">Describe the blocker</label>
         <input id="new-blocker" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140}
@@ -189,13 +188,13 @@ export default function BlockersPage() {
           className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-40">
           <Plus size={16} /> Log blocker
         </button>
-      </motion.form>
+      </m.form>
 
       <div role="tablist" aria-label="Blocker status" className="flex gap-2">
         {([["open", "Open", open.length], ["resolved", "Resolved", resolved.length]] as const).map(([k, label, n]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
             className={`relative rounded-full px-4 py-2 text-sm font-medium transition-colors ${tab === k ? "text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-            {tab === k && <motion.span layoutId="blocker-tab" className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
+            {tab === k && <m.span className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
             <span className="relative">{label} <span className={tab === k ? "text-slate-400" : "text-slate-400"}>{n}</span></span>
           </button>
         ))}

@@ -3,18 +3,17 @@ from typing import Annotated, Literal, Optional, List, Any
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from storage.instance import storage
-from storage.utils import (
-    decode_cursor,
-    encode_cursor,
+from src.storage.instance import storage
+from src.storage.sql import UPDATE_FIELDS, build_update
+from src.storage.utils import (
     new_uuid,
     normalize_iso_timestamp,
     utc_now_iso,
 )
-from storage.security import scan_content
-from api.routes.auth import require_user
-from api.concurrency import offload_database
-from schemas.journey import EvidenceType, Provenance, Stage
+from src.storage.security import scan_content
+from src.api.routes.auth import require_user
+from src.api.concurrency import offload_database
+from src.schemas.journey import EvidenceType, Provenance, Stage
 
 router = APIRouter(prefix="/api/projects/{project_id}/evidence", tags=["evidence"])
 # ID-scoped routes required by the frontend contract (toggle-public / delete by ID)
@@ -61,6 +60,7 @@ class CanonicalEvidenceCreate(BaseModel):
     provenance: Provenance
     stage: Stage
     public: bool = False
+    sensitive: bool = False
 
     @field_validator("date")
     @classmethod
@@ -164,13 +164,17 @@ def list_evidence(
     where = "WHERE project_id = ?"
     params: List[Any] = [project_id]
     if stage:
-        where += " AND stage = ?"; params.append(stage)
+        where += " AND stage = ?"
+        params.append(stage)
     if type:
-        where += " AND type = ?"; params.append(type)
+        where += " AND type = ?"
+        params.append(type)
     if provenance:
-        where += f" AND {_PROVENANCE_SQL} = ?"; params.append(provenance)
+        where += f" AND {_PROVENANCE_SQL} = ?"
+        params.append(provenance)
     if public is not None:
-        where += " AND publish = ?"; params.append(1 if public else 0)
+        where += " AND publish = ?"
+        params.append(1 if public else 0)
     direction = "ASC" if order == "asc" else "DESC"
     rows = storage.fetchall(
         f"SELECT *, COUNT(*) OVER() AS total_count FROM evidence {where} "
@@ -192,6 +196,8 @@ def list_evidence(
 def create_evidence(project_id: str, request: CanonicalEvidenceCreate, user: dict = Depends(require_user)):
     """Create evidence in the canonical contract."""
     storage.owned_project(project_id, user["id"])
+    if request.public and request.sensitive:
+        raise HTTPException(status_code=409, detail="Sensitive evidence cannot be made public")
     now, eid = utc_now_iso(), new_uuid()
 
     def transaction(conn):
@@ -201,11 +207,12 @@ def create_evidence(project_id: str, request: CanonicalEvidenceCreate, user: dic
               id, project_id, kind, title, body, source, occurred_at, ai_assisted,
               verified, publish, sensitive, commit_hash, created_at, updated_at,
               type, provenance, stage
-            ) VALUES (?, ?, ?, ?, '', ?, ?, ?, 0, ?, 0, NULL, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, '', ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?)
             """,
             (eid, project_id, _KIND_FOR_TYPE[request.type], request.text, request.source,
              request.date, 1 if request.provenance == "AI-assisted" else 0,
-             1 if request.public else 0, now, now, request.type, request.provenance, request.stage),
+             1 if request.public else 0, 1 if request.sensitive else 0,
+             now, now, request.type, request.provenance, request.stage),
         )
         conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
         created = conn.execute("SELECT * FROM evidence WHERE id = ?", (eid,)).fetchone()
@@ -264,6 +271,7 @@ def delete_evidence_by_id(evidence_id: str, user: dict = Depends(require_user)):
     return None
 
 
+# DEPRECATED: Frontend uses /api/evidence/{id} instead (ID-scoped route in id_router)
 @router.get("/{evidence_id}", response_model=EvidenceResponse)
 @offload_database
 def get_evidence(project_id: str, evidence_id: str, user: dict = Depends(require_user)):
@@ -280,6 +288,7 @@ def get_evidence(project_id: str, evidence_id: str, user: dict = Depends(require
     return storage.evidence_row(row)
 
 
+# DEPRECATED: Frontend uses /api/evidence/{id} instead (ID-scoped route in id_router)
 @router.patch("/{evidence_id}", response_model=EvidenceResponse)
 @offload_database
 def update_evidence(
@@ -314,12 +323,12 @@ def update_evidence(
         return storage.evidence_row(row)
     
     data["updated_at"] = utc_now_iso()
-    sets = ", ".join(f"{k} = ?" for k in data)
+    statement, values = build_update("evidence", UPDATE_FIELDS["evidence"], data)
     
     def transaction(conn):
         conn.execute(
-            f"UPDATE evidence SET {sets} WHERE id = ?",
-            tuple(data.values()) + (evidence_id,),
+            f"{statement} WHERE id = ?",
+            values + (evidence_id,),
         )
         updated_row = conn.execute(
             "SELECT * FROM evidence WHERE id = ?", (evidence_id,)
@@ -338,6 +347,7 @@ def update_evidence(
     return storage.evidence_row(updated)
 
 
+# DEPRECATED: Frontend uses /api/evidence/{id} instead (ID-scoped route in id_router)
 @router.delete("/{evidence_id}", status_code=204)
 @offload_database
 def delete_evidence(project_id: str, evidence_id: str, user: dict = Depends(require_user)):

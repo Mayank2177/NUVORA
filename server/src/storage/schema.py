@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url TEXT,
   email_verified INTEGER NOT NULL DEFAULT 0,
   is_admin INTEGER NOT NULL DEFAULT 0,
+  role TEXT NOT NULL DEFAULT 'developer' CHECK (role IN ('developer','employer')),
+  headline TEXT DEFAULT '',
+  bio TEXT DEFAULT '',
+  location TEXT DEFAULT '',
+  website TEXT DEFAULT '',
+  github_handle TEXT DEFAULT '',
+  linkedin_url TEXT DEFAULT '',
+  skills TEXT DEFAULT '[]',
+  hidden_projects TEXT DEFAULT '[]',
+  is_public INTEGER NOT NULL DEFAULT 0 CHECK (is_public IN (0,1)),
   failed_login_attempts INTEGER NOT NULL DEFAULT 0,
   locked_until TEXT,
   created_at TEXT NOT NULL,
@@ -212,4 +222,175 @@ CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires
 CREATE INDEX IF NOT EXISTS idx_oauth_states_expiry ON oauth_states(expires_at);
 CREATE INDEX IF NOT EXISTS idx_publications_lookup ON publications(username, slug);
 CREATE INDEX IF NOT EXISTS idx_waitlist_joined ON waitlist(joined_at DESC);
+
+-- Marketplace task-for-hire system tables
+CREATE TABLE IF NOT EXISTS marketplace_tasks (
+  id TEXT PRIMARY KEY,
+  employer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  company TEXT,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  raw_need TEXT,
+  summary TEXT,
+  requirements TEXT NOT NULL DEFAULT '[]',
+  skills_required TEXT NOT NULL DEFAULT '[]',
+  complexity TEXT CHECK (complexity IN ('Small','Medium','Large')),
+  scope TEXT,
+  acceptance TEXT NOT NULL DEFAULT '[]',
+  budget_min INTEGER,
+  budget_max INTEGER,
+  deadline TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','open','assigned','in_review','changes_requested','completed','closed','cancelled')),
+  assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  published_at TEXT,
+  closed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS task_applications (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES marketplace_tasks(id) ON DELETE CASCADE,
+  developer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected','withdrawn')),
+  proposal TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (task_id, developer_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_submissions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES marketplace_tasks(id) ON DELETE CASCADE,
+  developer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  developer_name TEXT NOT NULL,
+  application_id TEXT NOT NULL REFERENCES task_applications(id) ON DELETE CASCADE,
+  round INTEGER NOT NULL DEFAULT 1,
+  submission_url TEXT NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  link TEXT NOT NULL DEFAULT '',
+  criteria TEXT NOT NULL DEFAULT '[]',
+  tests TEXT,
+  checks TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','approved','rejected','revision_requested')),
+  submitted_at TEXT NOT NULL,
+  reviewed_at TEXT,
+  review TEXT
+);
+
+CREATE TABLE IF NOT EXISTS developer_skills (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  skill_name TEXT NOT NULL,
+  level INTEGER NOT NULL CHECK (level >= 1 AND level <= 5),
+  evidence_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (user_id, skill_name)
+);
+
+CREATE TABLE IF NOT EXISTS match_scores (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES marketplace_tasks(id) ON DELETE CASCADE,
+  developer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  score REAL NOT NULL CHECK (score >= 0 AND score <= 100),
+  skill_match REAL NOT NULL,
+  evidence_match REAL NOT NULL,
+  availability_match REAL NOT NULL,
+  calculated_at TEXT NOT NULL,
+  UNIQUE (task_id, developer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_marketplace_tasks_employer ON marketplace_tasks(employer_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_marketplace_tasks_status ON marketplace_tasks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_applications_task ON task_applications(task_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_applications_developer ON task_applications(developer_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_submissions_task ON task_submissions(task_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_developer_skills_user ON developer_skills(user_id, skill_name);
+CREATE INDEX IF NOT EXISTS idx_match_scores_task ON match_scores(task_id, score DESC);
+CREATE INDEX IF NOT EXISTS idx_match_scores_developer ON match_scores(developer_id, score DESC);
+
+-- Task offers/invitations system
+CREATE TABLE IF NOT EXISTS task_offers (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES marketplace_tasks(id) ON DELETE CASCADE,
+  developer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  developer_name TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK (origin IN ('invite','interest')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined','closed')),
+  created_at TEXT NOT NULL,
+  responded_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_offers_task ON task_offers(task_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_offers_developer ON task_offers(developer_id, status, created_at DESC);
+
+-- Developer onboarding profiles
+CREATE TABLE IF NOT EXISTS developer_profiles (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT,
+  goals TEXT NOT NULL DEFAULT '[]',
+  interests TEXT NOT NULL DEFAULT '[]',
+  skills TEXT NOT NULL DEFAULT '[]',
+  github_handle TEXT,
+  open_to_work INTEGER NOT NULL DEFAULT 0 CHECK (open_to_work IN (0,1)),
+  completed_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_developer_profiles_open_to_work ON developer_profiles(open_to_work, updated_at DESC);
+
+-- Employer onboarding profiles
+CREATE TABLE IF NOT EXISTS employer_profiles (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  company TEXT NOT NULL,
+  industry TEXT NOT NULL,
+  team_size TEXT NOT NULL,
+  website TEXT,
+  needs TEXT NOT NULL DEFAULT '[]',
+  completed_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  settings TEXT NOT NULL DEFAULT '{}',
+  preferences TEXT NOT NULL DEFAULT '{}',
+  notifications TEXT NOT NULL DEFAULT '{}',
+  onboarding_completed_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- Skill verifications (employer validations)
+CREATE TABLE IF NOT EXISTS skill_verifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  skill_name TEXT NOT NULL,
+  task_id TEXT REFERENCES marketplace_tasks(id) ON DELETE SET NULL,
+  task_title TEXT NOT NULL,
+  company TEXT NOT NULL,
+  verified_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_verifications_user ON skill_verifications(user_id, skill_name, verified_at DESC);
+CREATE INDEX IF NOT EXISTS idx_skill_verifications_skill ON skill_verifications(skill_name, verified_at DESC);
+
+-- Workspace state for code editor
+CREATE TABLE IF NOT EXISTS workspace_states (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  files TEXT NOT NULL DEFAULT '{}',
+  folders TEXT NOT NULL DEFAULT '[]',
+  open_tabs TEXT NOT NULL DEFAULT '[]',
+  active_tab TEXT NOT NULL DEFAULT '',
+  ai_dirty INTEGER NOT NULL DEFAULT 0 CHECK (ai_dirty IN (0,1)),
+  ai_files TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_states_updated ON workspace_states(updated_at DESC);
 """

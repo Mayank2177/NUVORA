@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import threading
 import time
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from collections import defaultdict
 from typing import Dict, Tuple
 
-from config import settings
+from src.config import settings
 
 
 class InMemoryRateLimiter:
@@ -106,7 +106,14 @@ def get_client_identifier(request_or_ip: str) -> str:
 
 def get_request_ip(request) -> str:
     direct_ip = request.client.host if request.client else "unknown"
-    if direct_ip in settings.trusted_proxy_ips:
+    def is_trusted(address: str) -> bool:
+        try:
+            parsed_address = ip_address(address)
+            return any(parsed_address in ip_network(network, strict=False) for network in settings.trusted_proxy_ips)
+        except ValueError:
+            return False
+
+    if is_trusted(direct_ip):
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
             parsed = []
@@ -118,7 +125,7 @@ def get_request_ip(request) -> str:
             # Trusted proxies append addresses to the right. Walk backwards so
             # a client-controlled value at the left cannot spoof rate limits.
             for candidate in reversed(parsed):
-                if candidate not in settings.trusted_proxy_ips:
+                if not is_trusted(candidate):
                     return candidate
     try:
         return ip_address(direct_ip).compressed

@@ -4,16 +4,16 @@ import sqlite3
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field, field_validator
 
-from storage.instance import storage
-from storage.utils import (
+from src.storage.instance import storage
+from src.storage.utils import (
     decode_cursor,
     encode_cursor,
     new_id,
     normalize_iso_timestamp,
     utc_now_iso,
 )
-from api.routes.auth import require_user
-from api.concurrency import offload_database
+from src.api.routes.auth import require_user
+from src.api.concurrency import offload_database
 
 router = APIRouter(prefix="/api/projects/{project_id}/commits", tags=["commits"])
 

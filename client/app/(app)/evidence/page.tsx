@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, Check, Eye, EyeOff, Plus, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { STAGES, useProjects, type Stage } from "@/lib/store";
 import {
@@ -68,7 +68,7 @@ function AddEvidence({
   }
 
   return (
-    <motion.form
+    <m.form
       onSubmit={submit} noValidate
       initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
       transition={{ duration: 0.35, ease: EASE }} className="overflow-hidden"
@@ -95,7 +95,7 @@ function AddEvidence({
 
           <div className="sm:col-span-2">
             <label htmlFor="ev-text" className="mb-1.5 block text-sm font-medium text-slate-700">What does it show?</label>
-            <input id="ev-text" value={d.text} onChange={(e) => set("text", e.target.value)} placeholder="Dashboard layout finished on mobile" maxLength={140}
+            <input id="ev-text" value={d.text} onChange={(e) => set("text", e.target.value)} placeholder="Dashboard finished on mobile" maxLength={140}
               aria-invalid={!!error} className={inputCls(!!error)} />
           </div>
 
@@ -126,11 +126,11 @@ function AddEvidence({
 
         <AnimatePresence>
           {(leaked || error) && (
-            <motion.p role="alert" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            <m.p role="alert" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
               className={`mt-4 flex items-start gap-2 overflow-hidden rounded-xl p-3 text-sm ${leaked ? "bg-amber-50 text-amber-800" : "bg-rose-50 text-rose-700"}`}>
               {leaked ? <ShieldAlert size={17} className="mt-0.5 shrink-0" /> : <AlertCircle size={17} className="mt-0.5 shrink-0" />}
               {leaked ? "This looks like it contains an API key or password. Remove it before saving." : error}
-            </motion.p>
+            </m.p>
           )}
         </AnimatePresence>
 
@@ -140,7 +140,7 @@ function AddEvidence({
           <p className="ml-auto text-xs text-slate-500">New evidence is private until you make it public.</p>
         </div>
       </div>
-    </motion.form>
+    </m.form>
   );
 }
 
@@ -150,7 +150,7 @@ function Item({ e, onToggle, onRemove }: { e: Evidence; onToggle: () => void; on
   const Icon = TYPE_ICON[e.type];
   const [confirm, setConfirm] = useState(false);
   return (
-    <motion.li layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.35, ease: EASE }}
+    <m.li initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.35, ease: EASE }}
       className="relative flex gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700"><Icon size={18} /></span>
       <div className="min-w-0 flex-1">
@@ -178,7 +178,7 @@ function Item({ e, onToggle, onRemove }: { e: Evidence; onToggle: () => void; on
           <button onClick={() => setConfirm(true)} aria-label={`Remove ${e.type}: ${e.text}`} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"><Trash2 size={16} /></button>
         )}
       </div>
-    </motion.li>
+    </m.li>
   );
 }
 
@@ -186,7 +186,7 @@ function Item({ e, onToggle, onRemove }: { e: Evidence; onToggle: () => void; on
 
 export default function EvidencePage() {
   const router = useRouter();
-  const { projects, active, ready } = useProjects();
+  const { projects, active, ready } = useProjects((s) => ({ projects: s.projects, active: s.active, ready: s.ready }));
   const { data, addEvidence, removeEvidence, toggleEvidencePublic } = useProjectData(active);
 
   const [query, setQuery] = useState("");
@@ -233,7 +233,7 @@ export default function EvidencePage() {
       <div className="animate-pulse space-y-4" role="status" aria-label="Loading evidence">
         <div className="h-10 w-64 rounded-xl bg-slate-200/60" />
         <div className="h-24 rounded-3xl bg-slate-200/60" />
-        {[0, 1, 2, 3].map((i) => <div key={i} className="h-20 rounded-2xl bg-slate-200/60" />)}
+        {[0, 1, 2, 3].map((i) => <div key={`placeholder-${i}`} className="h-20 rounded-2xl bg-slate-200/60" />)}
       </div>
     );
   }
@@ -245,7 +245,7 @@ export default function EvidencePage() {
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
         className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Evidence</h1>
@@ -255,7 +255,7 @@ export default function EvidencePage() {
           className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 transition-colors hover:bg-brand-600">
           <Plus size={16} /> Add evidence
         </button>
-      </motion.div>
+      </m.div>
 
       <AnimatePresence>
         {adding && (
@@ -265,7 +265,7 @@ export default function EvidencePage() {
       </AnimatePresence>
 
       {/* Summary */}
-      <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.5, ease: EASE }}
+      <m.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.5, ease: EASE }}
         className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm" aria-label="Evidence summary">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p><span className="text-3xl font-semibold">{all.length}</span> <span className="text-slate-500">items · {publicCount} public</span></p>
@@ -274,7 +274,7 @@ export default function EvidencePage() {
         <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-slate-100" role="img"
           aria-label={counts.map((c) => `${c.p}: ${c.n}`).join(", ")}>
           {counts.map(({ p, n }) => n > 0 && (
-            <motion.div key={p} className={PROV_BAR[p]} initial={{ width: 0 }} animate={{ width: `${(n / Math.max(all.length, 1)) * 100}%` }} transition={{ duration: 0.9, ease: EASE }} />
+            <m.div key={p} className={PROV_BAR[p]} initial={{ width: 0 }} animate={{ width: `${(n / Math.max(all.length, 1)) * 100}%` }} transition={{ duration: 0.9, ease: EASE }} />
           ))}
         </div>
         <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-600">
@@ -282,7 +282,7 @@ export default function EvidencePage() {
             <li key={p} className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${PROV_BAR[p]}`} />{p} <span className="text-slate-400">{n}</span></li>
           ))}
         </ul>
-      </motion.section>
+      </m.section>
 
       {/* Filters */}
       <section aria-label="Filters" className="space-y-3">
@@ -342,10 +342,10 @@ export default function EvidencePage() {
       {/* Toast */}
       <AnimatePresence>
         {flash && (
-          <motion.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+          <m.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
             className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2.5 rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-2xl">
             <Check size={16} className="text-emerald-400" /> {flash}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

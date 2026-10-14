@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { Layers } from "lucide-react";
 
-/** TODO: replace with your real support address before launch. */
-export const CONTACT_EMAIL = "hello@example.com";
+export const CONTACT_EMAIL = "support@nuvora.dev";
 
 export type LegalSection = { id: string; title: string; body: React.ReactNode };
 

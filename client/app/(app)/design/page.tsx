@@ -1,9 +1,8 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
-
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { AlertCircle, Check, ExternalLink, ImagePlus, Lightbulb, PenTool, Plus, Trash2, X } from "lucide-react";
 import { STAGES } from "@/lib/store";
 import { useProjects } from "@/lib/store";
@@ -32,9 +31,9 @@ function Err({ msg }: { msg: string }) {
 
 /* ---------- add design ---------- */
 
-type AddDesign = (d: Omit<Design, "id" | "createdAt">) => Promise<boolean>;
+type AddDesign = (d: Omit<Design, "id" | "createdAt">) => boolean;
 
-function DesignForm({ stage, onSave, onClose }: { stage: (typeof STAGES)[number]; onSave: (d: Parameters<AddDesign>[0], toEvidence: boolean) => Promise<boolean>; onClose: () => void }) {
+function DesignForm({ stage, onSave, onClose }: { stage: (typeof STAGES)[number]; onSave: (d: Parameters<AddDesign>[0], toEvidence: boolean) => boolean; onClose: () => void }) {
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<Kind>("Wireframe");
   const [tool, setTool] = useState<Tool>("Figma");
@@ -61,22 +60,17 @@ function DesignForm({ stage, onSave, onClose }: { stage: (typeof STAGES)[number]
     }
   }
 
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
     if (title.trim().length < 2) return setError("Give this design a title.");
-    if (!url.trim()) return setError("Add a link to the design. You can attach a screenshot too.");
+    if (!url.trim() && !image) return setError("Add a link to the design, a screenshot, or both.");
     if (url.trim() && !isHttpUrl(url.trim())) return setError("The link should start with http:// or https://");
-    setBusy(true);
-    try {
-      const ok = await onSave({ title: title.trim(), kind, tool, url: url.trim(), image, note: note.trim(), stage }, toEvidence);
-      if (!ok) setError("Could not save this design.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save this design.");
-    } finally { setBusy(false); }
+    const ok = onSave({ title: title.trim(), kind, tool, url: url.trim(), image, note: note.trim(), stage }, toEvidence);
+    if (!ok) setError("Your browser storage is full. Try a smaller image, or remove an older design.");
   }
 
   return (
-    <motion.form onSubmit={submit} noValidate initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+    <m.form onSubmit={submit} noValidate initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
       transition={{ duration: 0.35, ease: EASE }} className="overflow-hidden">
       <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
@@ -98,7 +92,7 @@ function DesignForm({ stage, onSave, onClose }: { stage: (typeof STAGES)[number]
             <select id="d-tool" value={tool} onChange={(e) => setTool(e.target.value as Tool)} className={inputCls()}>{TOOLS.map((t) => <option key={t}>{t}</option>)}</select>
           </div>
           <div className="sm:col-span-2">
-            <label htmlFor="d-url" className="mb-1.5 block text-sm font-medium text-slate-700">Design link</label>
+            <label htmlFor="d-url" className="mb-1.5 block text-sm font-medium text-slate-700">Link (optional if you add a screenshot)</label>
             <input id="d-url" value={url} inputMode="url" placeholder="https://www.figma.com/file/…" className={inputCls()}
               onChange={(e) => { setUrl(e.target.value); setError(""); const t = detectTool(e.target.value); if (t) setTool(t); }} />
           </div>
@@ -107,7 +101,7 @@ function DesignForm({ stage, onSave, onClose }: { stage: (typeof STAGES)[number]
             <p className="mb-1.5 text-sm font-medium text-slate-700">Screenshot (optional)</p>
             {image ? (
               <div className="relative overflow-hidden rounded-2xl border border-slate-200">
-                <img src={image} alt="Selected design preview" className="max-h-56 w-full object-cover" />
+                <Image src={image} alt="Selected design preview" width={800} height={448} unoptimized className="max-h-56 w-full object-cover" />
                 <button type="button" onClick={() => setImage(undefined)} aria-label="Remove screenshot" className="absolute right-2 top-2 rounded-full bg-slate-900/80 p-1.5 text-white hover:bg-slate-900"><X size={14} /></button>
               </div>
             ) : (
@@ -137,7 +131,7 @@ function DesignForm({ stage, onSave, onClose }: { stage: (typeof STAGES)[number]
           <button type="button" onClick={onClose} className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900">Cancel</button>
         </div>
       </div>
-    </motion.form>
+    </m.form>
   );
 }
 
@@ -146,11 +140,11 @@ function DesignForm({ stage, onSave, onClose }: { stage: (typeof STAGES)[number]
 function DesignCard({ d, onRemove }: { d: Design; onRemove: () => void }) {
   const [confirm, setConfirm] = useState(false);
   return (
-    <motion.li layout initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.4, ease: EASE }}
+    <m.li initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.4, ease: EASE }}
       className="flex flex-col overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         {d.image ? (
-          <motion.img src={d.image} alt={`${d.title} preview`} loading="lazy" className="h-full w-full object-cover" whileHover={{ scale: 1.04 }} transition={{ duration: 0.6, ease: EASE }} />
+          <m.img src={d.image} alt={`${d.title} preview`} loading="lazy" className="h-full w-full object-cover" whileHover={{ scale: 1.04 }} transition={{ duration: 0.6, ease: EASE }} />
         ) : (
           <div className="grid h-full place-items-center bg-gradient-to-br from-brand-50 to-slate-100 text-brand-600"><PenTool size={34} /></div>
         )}
@@ -176,7 +170,7 @@ function DesignCard({ d, onRemove }: { d: Design; onRemove: () => void }) {
           )}
         </div>
       </div>
-    </motion.li>
+    </m.li>
   );
 }
 
@@ -184,9 +178,9 @@ function DesignCard({ d, onRemove }: { d: Design; onRemove: () => void }) {
 
 export default function DesignPage() {
   const router = useRouter();
-  const { projects, active, ready } = useProjects();
+  const { projects, active, ready } = useProjects((s) => ({ projects: s.projects, active: s.active, ready: s.ready }));
   const { addEvidence } = useProjectData(active);
-  const { designs, decisions, addDesign, removeDesign, addDecision, removeDecision } = useDesign(active?.id);
+  const { designs, decisions, error: designError, addDesign, removeDesign, addDecision, removeDecision } = useDesign(active?.id);
 
   const [tab, setTab] = useState<"designs" | "decisions">("designs");
   const [adding, setAdding] = useState(false);
@@ -208,25 +202,20 @@ export default function DesignPage() {
   }, [flash]);
 
   if (!ready || !active || !designs || !decisions) {
+    if (designError) return <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{designError}</p>;
     return (
       <div className="animate-pulse space-y-4" role="status" aria-label="Loading design">
         <div className="h-10 w-48 rounded-xl bg-slate-200/60" />
-        <div className="grid gap-4 sm:grid-cols-2">{[0, 1].map((i) => <div key={i} className="h-72 rounded-3xl bg-slate-200/60" />)}</div>
+        <div className="grid gap-4 sm:grid-cols-2">{[0, 1].map((i) => <div key={`placeholder-${i}`} className="h-72 rounded-3xl bg-slate-200/60" />)}</div>
       </div>
     );
   }
 
-  async function saveDesign(d: Parameters<AddDesign>[0], toEvidence: boolean) {
-    await addDesign(d);
+  function saveDesign(d: Parameters<AddDesign>[0], toEvidence: boolean) {
+    if (!addDesign(d)) return false;
     if (toEvidence) {
-      try {
-        await addEvidence({ type: "Screenshot", text: `${d.kind}: ${d.title}`, source: d.tool, provenance: "Human", stage: d.stage, public: false });
-      } catch (error) {
-        console.error("Design saved, but its evidence could not be added", error);
-        setAdding(false);
-        setFlash("Design saved, but adding it to evidence failed. You can add evidence later.");
-        return true;
-      }
+      void addEvidence({ type: "Screenshot", text: `${d.kind}: ${d.title}`, source: d.tool, provenance: "Human", stage: d.stage, public: false })
+        .catch(() => setFlash("Design saved, but its evidence item could not be added."));
     }
     setAdding(false);
     setFlash(toEvidence ? "Design saved and added to evidence." : "Design saved.");
@@ -237,10 +226,14 @@ export default function DesignPage() {
     e.preventDefault();
     if (decision.trim().length < 5) return setDecError("State the decision in a short sentence.");
     if (reason.trim().length < 5) return setDecError("Add the reason. It is what makes a decision useful later.");
-    try { await addDecision({ decision: decision.trim(), reason: reason.trim(), stage: active!.stage }); }
-    catch (error) { return setDecError(error instanceof Error ? error.message : "Could not save this decision."); }
+    if (!addDecision({ decision: decision.trim(), reason: reason.trim(), stage: active!.stage })) return setDecError("Your browser storage is full. Remove an older item and try again.");
     if (decEvidence) {
-      await addEvidence({ type: "Decision", text: `${decision.trim()}. Reason: ${reason.trim()}`, source: "Nuvora", provenance: "Human", stage: active!.stage, public: false });
+      try {
+        await addEvidence({ type: "Decision", text: `${decision.trim()}. Reason: ${reason.trim()}`, source: "Nuvora", provenance: "Human", stage: active!.stage, public: false });
+      } catch {
+        setDecError("Decision is saved, but its evidence item could not be added.");
+        return;
+      }
     }
     setDecision("");
     setReason("");
@@ -250,7 +243,7 @@ export default function DesignPage() {
 
   return (
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-wrap items-end justify-between gap-4">
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Design</h1>
           <p className="mt-2 max-w-xl text-slate-600">Keep the sketches, mockups and decisions behind {active.name} in one place, so the reasoning isn&apos;t lost when the work moves on.</p>
@@ -261,13 +254,13 @@ export default function DesignPage() {
             <Plus size={16} /> Add design
           </button>
         )}
-      </motion.div>
+      </m.div>
 
       <div role="tablist" aria-label="Design sections" className="flex gap-2">
         {([["designs", `Designs ${designs.length}`], ["decisions", `Decisions ${decisions.length}`]] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
             className={`relative rounded-full px-4 py-2 text-sm font-medium transition-colors ${tab === k ? "text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-            {tab === k && <motion.span layoutId="design-tab" className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
+            {tab === k && <m.span className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
             <span className="relative">{label}</span>
           </button>
         ))}
@@ -281,7 +274,7 @@ export default function DesignPage() {
             <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center">
               <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-brand-50 text-brand-600"><PenTool size={22} /></span>
               <p className="mt-4 font-semibold">No designs yet</p>
-              <p className="mx-auto mt-1 max-w-sm text-sm text-slate-600">Add a link to your Figma, Excalidraw or Balsamiq file. You can attach a screenshot of the sketch too.</p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-slate-600">Add a link to your Figma, Excalidraw or Balsamiq file, or upload a screenshot of a sketch.</p>
               <button onClick={() => setAdding(true)} className="mt-5 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600">Add your first design</button>
             </div>
           ) : (
@@ -325,7 +318,7 @@ export default function DesignPage() {
             <ol className="relative space-y-4 border-l-2 border-slate-100 pl-6">
               <AnimatePresence initial={false} mode="popLayout">
                 {decisions.map((d) => (
-                  <motion.li key={d.id} layout initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.4, ease: EASE }} className="relative">
+                  <m.li key={d.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.4, ease: EASE }} className="relative">
                     <span className="absolute -left-[33px] top-5 h-3 w-3 rounded-full border-2 border-white bg-brand-600 ring-2 ring-brand-100" aria-hidden />
                     <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
                       <div className="flex items-start gap-3">
@@ -346,7 +339,7 @@ export default function DesignPage() {
                         )}
                       </div>
                     </div>
-                  </motion.li>
+                  </m.li>
                 ))}
               </AnimatePresence>
             </ol>
@@ -356,10 +349,10 @@ export default function DesignPage() {
 
       <AnimatePresence>
         {flash && (
-          <motion.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+          <m.div role="status" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
             className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2.5 rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-2xl">
             <Check size={16} className="text-emerald-400" /> {flash}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

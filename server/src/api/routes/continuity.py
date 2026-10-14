@@ -4,19 +4,19 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
-from api.routes.auth import require_user
-from api.concurrency import offload_database
-from domain.context import load_project_context
-from domain.guidance import evaluate_guidance
-from domain.project_markdown import generate_project_markdown
-from domain.skills import compute_skill_claims
-from schemas.continuity import (
+from src.api.routes.auth import require_user
+from src.api.concurrency import offload_database
+from src.domain.context import load_project_context
+from src.domain.guidance import evaluate_guidance
+from src.domain.project_markdown import generate_project_markdown
+from src.domain.skills import compute_skill_claims
+from src.schemas.continuity import (
     EvidenceChainResponse,
     GuidanceResponse,
     SkillClaimsResponse,
 )
-from storage.instance import storage
-from storage.utils import utc_now_iso
+from src.storage.instance import storage
+from src.storage.utils import utc_now_iso
 
 router = APIRouter(
     prefix="/api/projects/{project_id}/continuity", tags=["continuity"]

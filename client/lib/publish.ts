@@ -1,8 +1,10 @@
 "use client";
 
+import { api, ApiError } from "@/lib/api";
 import { STAGES, type Project, type Stage } from "@/lib/store";
 import type { Blocker, Evidence } from "@/lib/data";
-import { api, fromApiStage } from "@/lib/api-client";
+import { normalizeSnapshot } from "@/lib/snapshot";
+import { STORY_LABELS } from "@/lib/publish-ui";
 
 export type Story = { problem: string; process: string; build: string; challenges: string; result: string };
 export type Draft = { slug: string; story: Story | null; includeBlockers: boolean };
@@ -21,46 +23,82 @@ export type Snapshot = {
   blockers: Blocker[];
 };
 
-export const STORY_LABELS: Record<keyof Story, string> = {
-  problem: "The problem",
-  process: "The process",
-  build: "The build",
-  challenges: "Challenges",
-  result: "The result",
-};
+export { STORY_LABELS } from "@/lib/publish-ui";
 
-/* ---------- API backed publishing ---------- */
+/* ---------- API Operations ---------- */
 
-export async function loadDraft(pid: string): Promise<Draft> {
-  const { draft } = await api.publishing.getDraft(pid);
-  if (!draft) throw new Error("Could not load the publishing draft.");
-  return { slug: draft.slug, story: draft.story, includeBlockers: draft.include_blockers };
+export async function loadDraft(pid: string): Promise<Draft | null> {
+  try {
+    const response = await api.get<{ draft: { slug: string; story: Story | null; include_blockers: boolean } }>(
+      `/api/projects/${pid}/publish/draft`
+    );
+    // Ensure slug is always a string
+    return {
+      slug: response.draft.slug || "",
+      story: response.draft.story,
+      includeBlockers: response.draft.include_blockers,
+    };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
-export async function saveDraft(pid: string, d: Draft) {
-  await api.publishing.saveDraft(pid, { slug: d.slug, story: d.story, include_blockers: d.includeBlockers });
+
+export async function saveDraft(pid: string, d: Draft): Promise<void> {
+  await api.put(`/api/projects/${pid}/publish/draft`, {
+    slug: d.slug,
+    story: d.story,
+    includeBlockers: d.includeBlockers,
+  });
 }
-export async function loadPublishedStatus(pid: string) {
-  const status = await api.publishing.status(pid);
-  return status.published ? status.slug ?? null : null;
+
+export async function getSnapshot(slug: string): Promise<Snapshot | null> {
+  try {
+    const response = await api.get<{ snapshot: Record<string, unknown> }>(`/api/public/${slug}`, { auth: false });
+    return normalizeSnapshot(response.snapshot);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
-export async function publishSnapshot(s: Snapshot, includeBlockers = true) {
-  return api.publishing.publish(s.projectId, { slug: s.slug, story: s.story, include_blockers: includeBlockers });
+
+export async function getPublishedSlug(pid: string): Promise<string | null> {
+  try {
+    const response = await api.get<{ published: boolean; slug?: string; publicUrl?: string }>(
+      `/api/projects/${pid}/publish/status`
+    );
+    return response.published && response.slug ? response.slug : null;
+  } catch {
+    return null;
+  }
 }
-export async function unpublish(pid: string) { await api.publishing.unpublish(pid); }
-export async function loadPublicSnapshot(slug: string): Promise<Snapshot> {
-  const result = await api.publishing.getPublic(slug);
-  const s = result.snapshot;
-  return {
-    projectId: s.project_id, slug: s.slug, name: s.name, goal: s.goal, users: s.users,
-    stage: fromApiStage(s.stage) as Stage, repo: s.repo, author: s.author, publishedAt: s.published_at,
-    story: { problem: s.story.problem ?? "", process: s.story.process ?? "", build: s.story.build ?? "", challenges: s.story.challenges ?? "", result: s.story.result ?? "" },
-    evidence: (s.evidence ?? []).map((e) => ({ id: e.id, type: e.type as Evidence["type"], text: e.text, date: e.date,
-      source: e.source, provenance: e.provenance as Evidence["provenance"], stage: fromApiStage(e.stage) as Stage, public: true })),
-    blockers: (s.blockers ?? []).map((b) => ({ id: b.id, title: b.title, status: b.status === "resolved" ? "resolved" : "open",
-      attempts: b.attempts, solution: b.solution ?? undefined, createdAt: b.created_at, resolvedAt: b.resolved_at ?? undefined })),
-  };
+
+export async function slugTaken(slug: string, pid: string): Promise<boolean> {
+  try {
+    const response = await api.get<{ available: boolean; projectId?: string }>(
+      `/api/projects/${pid}/publish/check-slug/${slug}`
+    );
+    return !response.available && response.projectId !== pid;
+  } catch {
+    return false;
+  }
 }
-export const slugTaken = () => false;
+
+export async function publishSnapshot(s: Snapshot): Promise<void> {
+  await api.post(`/api/projects/${s.projectId}/publish`, {
+    slug: s.slug,
+    story: s.story,
+    includeBlockers: s.blockers.length > 0,
+  });
+}
+
+export async function unpublish(pid: string): Promise<void> {
+  await api.delete(`/api/projects/${pid}/publish`);
+}
 
 /* ---------- slug ---------- */
 
@@ -138,4 +176,3 @@ export function generateStory(p: Pick<Project, "name" | "goal" | "users" | "cons
 
   return { problem, process, build, challenges, result };
 }
-

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 
-from storage.instance import get_storage
-from storage.utils import utc_now_iso
+from src.storage.instance import get_storage
+from src.storage.utils import utc_now_iso
 
 
 def main() -> None:

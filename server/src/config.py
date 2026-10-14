@@ -1,7 +1,7 @@
 """Configuration settings for NUVORA."""
 from pathlib import Path
 from typing import Annotated, Any
-from ipaddress import ip_address
+from ipaddress import ip_network
 from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
@@ -24,11 +24,11 @@ def _is_placeholder(value: str) -> bool:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="NUVORA_",
-        env_file="../.env",
+        env_file=Path(__file__).resolve().parents[2] / ".env",
         extra="ignore",
     )
 
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = Field(default=4117, ge=1, le=65535)
     database_path: Path = Path.home() / ".nuvora" / "nuvora.sqlite3"
     database_url: str = ""
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # GitHub OAuth
     github_client_id: str = ""
     github_client_secret: str = ""
-    github_redirect_uri: str = "http://127.0.0.1:4117/api/integrations/github/callback"
+    github_redirect_uri: str = ""
     github_webhook_secret: str = ""  # Required in production
     github_webhook_max_bytes: int = Field(default=1_000_000, ge=1024, le=10_000_000)
     
@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     rate_limit_auth_window: int = Field(default=300, ge=1, le=86_400)
     rate_limit_api_max: int = Field(default=100, ge=1, le=100_000)
     rate_limit_api_window: int = Field(default=60, ge=1, le=86_400)
+    rate_limit_read_max: int = Field(default=600, ge=1, le=100_000)
     rate_limit_redis_url: str = ""
     
     # Email Configuration (optional, for password reset emails)
@@ -80,9 +81,6 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from_email: str = ""
     smtp_from_name: str = "NUVORA"
-    
-    # Demo data
-    seed_demo: bool = False
 
     @field_validator("database_path", mode="before")
     @classmethod
@@ -170,11 +168,11 @@ class Settings(BaseSettings):
     @field_validator("trusted_proxy_ips", mode="after")
     @classmethod
     def _validate_trusted_proxies(cls, value: list[str]) -> list[str]:
-        for address in value:
+        for network in value:
             try:
-                ip_address(address)
+                ip_network(network, strict=False)
             except ValueError as exc:
-                raise ValueError(f"Invalid trusted proxy IP: {address}") from exc
+                raise ValueError(f"Invalid trusted proxy IP or network: {network}") from exc
         return value
 
     @model_validator(mode="after")
@@ -224,8 +222,6 @@ class Settings(BaseSettings):
                 or _is_placeholder(self.github_client_secret)
             ):
                 raise ValueError("GitHub OAuth client credentials are invalid")
-            if self.seed_demo:
-                raise ValueError("seed_demo cannot be enabled in production")
             if not self.public_base_url.startswith("https://"):
                 raise ValueError("public_base_url must use HTTPS in production")
             if any(not origin.startswith("https://") for origin in self.cors_origins):

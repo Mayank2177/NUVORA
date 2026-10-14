@@ -1,4 +1,4 @@
-/* eslint-disable @next/next/no-img-element */
+import Image from "next/image";
 import Link from "next/link";
 import { Layers, ShieldCheck } from "lucide-react";
 
@@ -19,11 +19,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       </div>
 
       <aside className="relative hidden overflow-hidden lg:block" aria-hidden>
-        <img
-          src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1400&q=80"
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <Image src="/images/marketing/team.webp" alt="" fill sizes="(min-width: 1024px) 50vw, 0px" className="object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-900/85 via-slate-900/20 to-slate-900/10" />
         <div className="absolute inset-x-10 bottom-10 space-y-6 text-white">
           <div className="rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-md">

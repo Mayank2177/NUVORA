@@ -5,13 +5,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.routes.auth import require_user
-from api.concurrency import offload_database
-from domain.context import load_project_context
-from domain.guidance import evaluate_guidance
-from domain.project_markdown import generate_project_markdown
-from schemas.continuity import MCPRequest
-from storage.instance import storage
+from src.api.routes.auth import require_user
+from src.api.concurrency import offload_database
+from src.domain.context import load_project_context
+from src.domain.guidance import evaluate_guidance
+from src.domain.project_markdown import generate_project_markdown
+from src.schemas.continuity import MCPRequest
+from src.storage.instance import storage
 
 router = APIRouter(tags=["mcp"])
 

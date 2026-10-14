@@ -1,314 +1,318 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "framer-motion";
-import { AlertTriangle, ArrowRight, Check, CheckCircle2, Compass, GitBranch, Loader2, Plus, ShieldCheck, Users } from "lucide-react";
+import { AnimatePresence, m } from "framer-motion";
+import { ArrowRight, Check, Compass, EyeOff, Folder, Globe, Plus, ShieldCheck, X } from "lucide-react";
 import { useSession } from "@/lib/auth";
-import { STAGES, useProjects, type Project } from "@/lib/store";
-import { PROV_STYLE, TYPE_ICON, useProjectData, type Blocker, type Evidence } from "@/lib/data";
+import { useProjects } from "@/lib/store";
+import { STAGES } from "@/lib/store";
+import { STAGE_INFO, useTasks } from "@/lib/tasks";
+import { LEVEL_BADGE, LEVEL_LABEL, useCapability } from "@/lib/capability";
+import { useProjectStats } from "@/lib/account";
+import { saveDevRecord, useDevRecord, type DevRecord, type SkillLevel } from "@/lib/market";
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+const LEVELS: SkillLevel[] = ["Beginner", "Intermediate", "Advanced"];
+const TABS = [
+  { id: "journey", label: "My Journey", icon: Compass },
+  { id: "projects", label: "My Projects", icon: Folder },
+  { id: "capability", label: "My Capability", icon: ShieldCheck },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
 
-/* ---------- helpers ---------- */
+const LEVEL_STYLE: Record<SkillLevel, string> = {
+  Beginner: "bg-slate-100 text-slate-700",
+  Intermediate: "bg-sky-50 text-sky-700",
+  Advanced: "bg-violet-50 text-violet-700",
+};
+const MARKS = [
+  { l: "L0", t: "Self-declared" }, { l: "L1", t: "Learned" }, { l: "L2", t: "Practiced" },
+  { l: "L3", t: "Applied or shipped" }, { l: "L4", t: "Externally verified" },
+];
 
-function rel(iso: string) {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return `${days} days ago`;
-}
+const inputCls =
+  "w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-colors hover:border-slate-300 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100";
 
-function greeting() {
-  const h = new Date().getHours();
-  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-}
-
-type Next = { title: string; why: string; cta: string; href?: string; advance?: boolean };
-
-/** Rule-based guidance. Every suggestion carries its reason. */
-function nextAction(p: Project, ev: Evidence[], bl: Blocker[]): Next {
-  const idx = STAGES.indexOf(p.stage);
-  const open = bl.filter((b) => b.status === "open");
-  const has = (t: Evidence["type"]) => ev.some((e) => e.type === t);
-
-  if (open.length)
-    return {
-      title: `Resolve: ${open[0].title}`,
-      why: `You have ${open.length} open blocker${open.length > 1 ? "s" : ""}. Clearing it keeps you moving, and the fix becomes evidence.`,
-      cta: "Go to blockers", href: "#blockers",
-    };
-  if (ev.length < 3)
-    return { title: "Add your first evidence", why: "Your project has very little on record, so there is not much to build a story from yet.", cta: "Open evidence", href: "/evidence" };
-  if (p.stage === "Build" && !has("Test"))
-    return { title: "Add tests for what you've built", why: `You're in Build with ${ev.filter((e) => e.type === "Commit").length} commits but no test results. Tests make your work verifiable.`, cta: "Open build", href: "/build" };
-  if (p.stage === "Document" && !has("Screenshot"))
-    return { title: "Capture a screenshot of your work", why: "You're documenting the project but have no visuals yet. Screenshots make the story easy to follow.", cta: "Open evidence", href: "/evidence" };
-  if (p.stage === "Publish" || p.stage === "Demonstrate")
-    return { title: "Preview your project story", why: "You've reached the stage where your evidence can become a public page. Nothing goes public until you choose.", cta: "Open publish", href: "/publish" };
-  if (idx < STAGES.length - 1)
-    return { title: `Move on to ${STAGES[idx + 1]}`, why: `You have ${ev.filter((e) => e.stage === p.stage).length} evidence items in ${p.stage} and no open blockers. Advance when you've met that stage's exit condition.`, cta: `Start ${STAGES[idx + 1]}`, advance: true };
-  return { title: "Share what you learned", why: "You've completed the journey. Turning it into a contribution helps others and credits you.", cta: "Open publish", href: "/publish" };
-}
-
-function CountUp({ to, suffix = "" }: { to: number; suffix?: string }) {
-  const mv = useMotionValue(0);
-  const text = useTransform(mv, (v) => `${Math.round(v)}${suffix}`);
-  useEffect(() => {
-    const c = animate(mv, to, { duration: 1.1, ease: "easeOut" });
-    return () => c.stop();
-  }, [to, mv]);
-  return <motion.span>{text}</motion.span>;
-}
-
-/* ---------- sections ---------- */
-
-function Stat({ label, children, delay }: { label: string; children: React.ReactNode; delay: number }) {
+function Switch({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.5, ease: EASE }}
-      className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-      <p className="text-sm text-slate-500">{label}</p>
-      {children}
-    </motion.div>
+    <button role="switch" aria-checked={on} aria-label={label} onClick={onChange}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-brand-600" : "bg-slate-300"}`}>
+      <m.span transition={{ type: "spring", stiffness: 500, damping: 32 }} className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow ${on ? "right-0.5" : "left-0.5"}`} />
+    </button>
   );
 }
 
-function JourneyStrip({ project, onPick }: { project: Project; onPick: (s: Project["stage"]) => void }) {
-  const idx = STAGES.indexOf(project.stage);
-  return (
-    <section aria-label="Journey" className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="font-semibold">Your journey</h2>
-        <p className="text-sm text-slate-500">Select a stage to update where you are. Skipping or going back is fine.</p>
-      </div>
-      <ol className="mt-5 flex gap-2 overflow-x-auto pb-2">
-        {STAGES.map((s, i) => {
-          const done = i < idx;
-          const current = i === idx;
-          return (
-            <li key={s} className="shrink-0">
-              <button onClick={() => onPick(s)} aria-current={current ? "step" : undefined}
-                className={`relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
-                  current ? "text-white" : done ? "bg-brand-50 text-brand-700 hover:bg-brand-100" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
-                }`}>
-                {current && <motion.span layoutId="dash-stage" className="absolute inset-0 rounded-xl bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
-                <span className="relative flex items-center gap-1.5">{done && <Check size={14} />}{s}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <section className={`rounded-3xl border border-slate-100 bg-white p-6 shadow-sm ${className}`}>{children}</section>;
 }
 
-function BlockersCard({ blockers, onAdd, onResolve }: { blockers: Blocker[]; onAdd: (t: string) => void; onResolve: (id: string, s: string) => void }) {
-  const [draft, setDraft] = useState("");
-  const [resolving, setResolving] = useState<string | null>(null);
-  const [solution, setSolution] = useState("");
-  const open = blockers.filter((b) => b.status === "open");
-
-  return (
-    <section id="blockers" className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 font-semibold"><AlertTriangle size={18} className="text-amber-500" /> Blockers</h2>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{open.length} open</span>
-      </div>
-
-      <form onSubmit={(e) => { e.preventDefault(); if (draft.trim()) { onAdd(draft.trim()); setDraft(""); } }} className="mt-4 flex gap-2">
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="What's blocking you?" aria-label="Log a blocker"
-          className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm placeholder:text-slate-400 transition-colors hover:border-slate-300 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100" />
-        <button type="submit" disabled={!draft.trim()} aria-label="Add blocker"
-          className="grid w-11 place-items-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-brand-600 disabled:opacity-40"><Plus size={18} /></button>
-      </form>
-
-      <ul className="mt-4 space-y-3">
-        <AnimatePresence initial={false} mode="popLayout">
-          {open.map((b) => (
-            <motion.li key={b.id} layout initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, x: 24 }}
-              className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
-              <p className="font-medium">{b.title}</p>
-              {b.attempts.length > 0 && (
-                <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                  {b.attempts.map((a) => <li key={a} className="flex gap-2"><span className="text-slate-400">•</span>{a}</li>)}
-                </ul>
-              )}
-              {resolving === b.id ? (
-                <form onSubmit={(e) => { e.preventDefault(); if (solution.trim()) { onResolve(b.id, solution.trim()); setResolving(null); setSolution(""); } }} className="mt-3 space-y-2">
-                  <textarea autoFocus rows={2} value={solution} onChange={(e) => setSolution(e.target.value)} placeholder="What fixed it?" aria-label="Solution"
-                    className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-100" />
-                  <div className="flex gap-2">
-                    <button type="submit" disabled={!solution.trim()} className="rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Mark as resolved</button>
-                    <button type="button" onClick={() => setResolving(null)} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-white">Cancel</button>
-                  </div>
-                </form>
-              ) : (
-                <button onClick={() => setResolving(b.id)} className="mt-3 text-sm font-semibold text-brand-600 hover:underline">Resolve this</button>
-              )}
-            </motion.li>
-          ))}
-        </AnimatePresence>
-      </ul>
-
-      {open.length === 0 && (
-        <div className="mt-4 flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800">
-          <CheckCircle2 size={20} className="shrink-0" /> Nothing is blocking you. Log a blocker above the moment something gets in the way.
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Activity({ evidence }: { evidence: Evidence[] }) {
-  const items = [...evidence].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 6);
-  return (
-    <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} className="text-brand-600" /> Recent evidence</h2>
-        <Link href="/evidence" className="text-sm font-semibold text-brand-600 hover:underline">View all</Link>
-      </div>
-      <ul className="mt-4 space-y-1">
-        <AnimatePresence initial={false}>
-          {items.map((e, i) => {
-            const Icon = TYPE_ICON[e.type];
-            return (
-              <motion.li key={e.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04, duration: 0.4, ease: EASE }}
-                className="flex gap-3 rounded-xl p-2.5 transition-colors hover:bg-slate-50">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600"><Icon size={17} /></span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <p className="truncate text-sm font-medium">{e.text}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${PROV_STYLE[e.provenance]}`}>{e.provenance}</span>
-                  </div>
-                  <p className="text-xs text-slate-500">{e.type} · {rel(e.date)} · {e.source} · {e.stage}</p>
-                </div>
-              </motion.li>
-            );
-          })}
-        </AnimatePresence>
-      </ul>
-    </section>
-  );
-}
-
-function Skeleton() {
-  return (
-    <div className="animate-pulse space-y-6" role="status" aria-label="Loading project">
-      <div className="h-48 rounded-3xl bg-slate-200/60" />
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-28 rounded-2xl bg-slate-200/60" />)}</div>
-      <div className="h-40 rounded-3xl bg-slate-200/60" />
-    </div>
-  );
-}
-
-/* ---------- page ---------- */
-
-export default function DashboardPage() {
+export default function DeveloperHub() {
   const router = useRouter();
   const user = useSession();
-  const { projects, active, ready, update } = useProjects();
-  const { data, addBlocker, resolveBlocker } = useProjectData(active);
-  const [now] = useState(() => Date.now()); // captured once, keeps render pure
+  const rec = useDevRecord(user?.id);
+  const { projects, active, ready, setActive } = useProjects((s) => ({ projects: s.projects, active: s.active, ready: s.ready, setActive: s.setActive }));
+  const { tasks } = useTasks(active?.id, active?.stage);
+  const cap = useCapability(user?.id, rec?.skills ?? [], false);
+  const [tab, setTab] = useState<TabId>("journey");
+  const [goal, setGoal] = useState("");
+  const [skillName, setSkillName] = useState("");
+  const [skillLevel, setSkillLevel] = useState<SkillLevel>("Intermediate");
 
   useEffect(() => {
-    if (ready && projects.length === 0) router.replace("/new");
-  }, [ready, projects.length, router]);
+    if (rec === null) router.replace("/onboarding");
+  }, [rec, router]);
 
-  const days = active
-    ? Math.max(1, Math.ceil((now - new Date(active.createdAt).getTime()) / 86_400_000))
-    : 1;
+  const stats = useProjectStats(projects);
 
-  if (!ready || !active || !data) {
-    return projects.length === 0 && ready
-      ? <Loader2 className="mx-auto mt-24 animate-spin text-slate-400" />
-      : <Skeleton />;
+  if (!user || !rec || !ready) {
+    return (
+      <div className="animate-pulse space-y-4" role="status" aria-label="Loading dashboard">
+        <div className="h-10 w-64 rounded-xl bg-slate-200/60" />
+        <div className="grid gap-4 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={`placeholder-${i}`} className="h-24 rounded-2xl bg-slate-200/60" />)}</div>
+        <div className="h-64 rounded-3xl bg-slate-200/60" />
+      </div>
+    );
   }
 
-  const idx = STAGES.indexOf(active.stage);
-  const progress = Math.round(((idx + 1) / STAGES.length) * 100);
-  const openCount = data.blockers.filter((b) => b.status === "open").length;
-  const next = nextAction(active, data.evidence, data.blockers);
+  const patch = (p: Partial<DevRecord>) => saveDevRecord({ ...rec, ...p });
+  const evidenceTotal = projects.reduce((n, p) => n + (stats[p.id]?.evidence ?? 0), 0);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+
+  const stageTasks = (tasks ?? []).filter((t) => active && t.stage === active.stage);
+  const doneTasks = stageTasks.filter((t) => t.done).length;
+  const stageIdx = active ? STAGES.indexOf(active.stage) : -1;
+
+  function addGoal(e: React.FormEvent) {
+    e.preventDefault();
+    const t = goal.trim().slice(0, 80);
+    if (!t || rec!.goals.length >= 8 || rec!.goals.some((g) => g.toLowerCase() === t.toLowerCase())) return;
+    patch({ goals: [...rec!.goals, t] });
+    setGoal("");
+  }
+
+  function addSkill(e: React.FormEvent) {
+    e.preventDefault();
+    const t = skillName.trim().slice(0, 30);
+    if (!t || rec!.skills.length >= 15 || rec!.skills.some((s) => s.name.toLowerCase() === t.toLowerCase())) return;
+    patch({ skills: [...rec!.skills, { name: t, level: skillLevel }] });
+    setSkillName("");
+  }
 
   return (
     <div className="space-y-6">
-      {/* Project header */}
-      <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}
-        className="grid overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm md:grid-cols-[1fr_280px]">
-        <div className="p-7">
-          <p className="text-sm text-slate-500">{greeting()}, {user?.name.split(" ")[0]}</p>
-          <h1 className="mt-1 text-3xl font-semibold">{active.name}</h1>
-          <p className="mt-3 max-w-xl text-slate-600">{active.goal}</p>
-          <div className="mt-5 flex flex-wrap gap-2 text-sm">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 font-medium text-white"><Compass size={14} /> {active.stage}</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-slate-700"><Users size={14} /> {active.users}</span>
-            {active.repo && <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 font-mono text-xs text-slate-700"><GitBranch size={14} /> {active.repo}</span>}
-          </div>
-        </div>
-        <div className="relative hidden md:block" aria-hidden>
-          <img src="https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=700&q=80" alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-r from-white via-white/10 to-transparent" />
-        </div>
-      </motion.section>
+      {cap.error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{cap.error}</p>}
+      <m.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
+        <p className="text-sm text-slate-500">{greeting}, {user.name.split(" ")[0]}</p>
+        <h1 className="mt-1 text-3xl font-semibold">Your developer dashboard</h1>
+        <p className="mt-2 max-w-xl text-slate-600">Learn, build and collect evidence. It all adds up to a capability profile employers can trust.</p>
+      </m.div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Progress" delay={0.05}>
-          <p className="mt-2 text-3xl font-semibold"><CountUp to={progress} suffix="%" /></p>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label="Journey progress">
-            <motion.div className="h-full rounded-full bg-brand-600" initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ duration: 1.1, ease: EASE }} />
-          </div>
-        </Stat>
-        <Stat label="Evidence items" delay={0.1}>
-          <p className="mt-2 text-3xl font-semibold"><CountUp to={data.evidence.length} /></p>
-          <p className="mt-3 text-xs text-slate-500">{data.evidence.filter((e) => e.provenance === "AI-assisted").length} AI-assisted</p>
-        </Stat>
-        <Stat label="Open blockers" delay={0.15}>
-          <p className={`mt-2 text-3xl font-semibold ${openCount ? "text-amber-600" : ""}`}><CountUp to={openCount} /></p>
-          <p className="mt-3 text-xs text-slate-500">{data.blockers.filter((b) => b.status === "resolved").length} resolved</p>
-        </Stat>
-        <Stat label="Days on project" delay={0.2}>
-          <p className="mt-2 text-3xl font-semibold"><CountUp to={days} /></p>
-          <p className="mt-3 text-xs text-slate-500">Stage {idx + 1} of {STAGES.length}</p>
-        </Stat>
+      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Summary">
+        {[
+          { n: projects.length, l: projects.length === 1 ? "Project" : "Projects" },
+          { n: evidenceTotal, l: "Evidence items" },
+          { n: rec.skills.length, l: "Skills declared" },
+          { n: rec.openToWork ? "Visible" : "Hidden", l: "To employers" },
+        ].map((s, i) => (
+          <m.li key={s.l} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + i * 0.05, duration: 0.5, ease: EASE }}
+            className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+            <p className="text-3xl font-semibold">{s.n}</p>
+            <p className="mt-1 text-sm text-slate-500">{s.l}</p>
+          </m.li>
+        ))}
+      </ul>
+
+      <div role="tablist" aria-label="Dashboard sections" className="flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <button key={t.id} role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id} aria-controls={`panel-${t.id}`} onClick={() => setTab(t.id)}
+            className={`relative inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors ${tab === t.id ? "text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+            {tab === t.id && <m.span className="absolute inset-0 rounded-full bg-slate-900" transition={{ type: "spring", stiffness: 380, damping: 32 }} />}
+            <span className="relative inline-flex items-center gap-2"><t.icon size={15} /> {t.label}</span>
+          </button>
+        ))}
       </div>
 
-      {/* Next step */}
-      <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.6, ease: EASE }}
-        className="relative overflow-hidden rounded-3xl bg-slate-900 p-7 text-white sm:p-8">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-brand-500/30 blur-3xl" aria-hidden />
-        <div className="relative grid items-end gap-6 md:grid-cols-[1fr_auto]">
-          <div>
-            <p className="text-sm font-medium text-slate-400">Next step</p>
-            <AnimatePresence mode="wait">
-              <motion.div key={next.title} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.3 }}>
-                <h2 className="mt-1 text-2xl font-semibold sm:text-3xl">{next.title}</h2>
-                <p className="mt-3 max-w-2xl leading-relaxed text-slate-300"><span className="font-medium text-white">Why: </span>{next.why}</p>
-              </motion.div>
-            </AnimatePresence>
-          </div>
-          {next.advance ? (
-            <button onClick={() => update(active.id, { stage: STAGES[idx + 1] })}
-              className="group inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-50">
-              {next.cta} <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
-            </button>
-          ) : (
-            <Link href={next.href!} className="group inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-50">
-              {next.cta} <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
-            </Link>
+      <AnimatePresence mode="wait" initial={false}>
+        <m.div key={tab} role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}
+          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25, ease: EASE }} className="space-y-6">
+
+          {tab === "journey" && (
+            <>
+              <Card>
+                <h2 className="font-semibold">Your goals</h2>
+                <p className="mt-1 text-sm text-slate-500">What you&apos;re working towards. Add or remove goals any time.</p>
+                {rec.goals.length > 0 ? (
+                  <ul className="mt-4 flex flex-wrap gap-2">
+                    {rec.goals.map((g) => (
+                      <li key={g} className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 py-1.5 pl-3.5 pr-2 text-sm font-medium text-brand-700">
+                        {g}
+                        <button onClick={() => patch({ goals: rec.goals.filter((x) => x !== g) })} aria-label={`Remove goal: ${g}`} className="rounded-full p-0.5 hover:bg-brand-100"><X size={13} /></button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="mt-4 text-sm text-slate-500">No goals yet. Add your first one below.</p>}
+                <form onSubmit={addGoal} className="mt-4 flex gap-2">
+                  <input value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="Add a goal" aria-label="Add a goal" maxLength={80} className={inputCls} />
+                  <button type="submit" disabled={!goal.trim()} aria-label="Add goal" className="grid w-11 shrink-0 place-items-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-brand-600 disabled:opacity-40"><Plus size={18} /></button>
+                </form>
+              </Card>
+
+              {active ? (
+                <Card>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-slate-500">Current project</p>
+                      <h2 className="text-xl font-semibold">{active.name}</h2>
+                    </div>
+                    <span className="rounded-full bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">{active.stage}</span>
+                  </div>
+                  <p className="mt-4 text-slate-700"><span className="font-medium">The question: </span>{STAGE_INFO[active.stage].question}</p>
+                  <p className="mt-1 text-sm text-slate-600"><span className="font-medium text-slate-700">Works with: </span>{STAGE_INFO[active.stage].tool}</p>
+                  <p className="mt-1 text-sm text-slate-600"><span className="font-medium text-slate-700">Tasks in this stage: </span>{doneTasks} of {stageTasks.length} done</p>
+
+                  <ol className="mt-5 flex flex-wrap gap-1.5" aria-label="Journey stages">
+                    {STAGES.map((s, i) => (
+                      <li key={s} aria-current={i === stageIdx ? "step" : undefined}
+                        className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${i === stageIdx ? "bg-slate-900 text-white" : i < stageIdx ? "bg-brand-50 text-brand-700" : "bg-slate-100 text-slate-500"}`}>
+                        {i < stageIdx && <Check size={12} />} {s}
+                      </li>
+                    ))}
+                  </ol>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <Link href="/overview" className="group inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600">
+                      Open project overview <ArrowRight size={15} className="transition-transform group-hover:translate-x-1" />
+                    </Link>
+                    <Link href="/tasks" className="inline-flex items-center rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50">Open tasks</Link>
+                  </div>
+                </Card>
+              ) : (
+                <Card className="text-center">
+                  <p className="font-semibold">Start your first project</p>
+                  <p className="mx-auto mt-1 max-w-sm text-sm text-slate-600">Every journey begins with an idea. Create a project and Nuvora starts collecting your evidence.</p>
+                  <Link href="/new" className="mt-5 inline-flex rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600">Create a project</Link>
+                </Card>
+              )}
+            </>
           )}
-        </div>
-        <p className="relative mt-6 text-xs text-slate-500">Suggestions are rule-based and never act without your approval.</p>
-      </motion.section>
 
-      <JourneyStrip project={active} onPick={(s) => update(active.id, { stage: s })} />
+          {tab === "projects" && (
+            projects.length === 0 ? (
+              <Card className="text-center">
+                <p className="font-semibold">No projects yet</p>
+                <p className="mx-auto mt-1 max-w-sm text-sm text-slate-600">Add a project from scratch, or import a GitHub repository to turn its history into evidence.</p>
+                <Link href="/new" className="mt-5 inline-flex rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600">Add a project</Link>
+              </Card>
+            ) : (
+              <ul className="grid gap-5 sm:grid-cols-2">
+                {projects.map((p) => {
+                  const s = stats[p.id];
+                  return (
+                    <li key={p.id} className={`flex flex-col rounded-3xl border bg-white p-6 shadow-sm ${p.id === active?.id ? "border-brand-200 ring-4 ring-brand-50" : "border-slate-100"}`}>
+                      <div className="flex items-start gap-3">
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-lg font-bold text-brand-700" aria-hidden>{p.name[0]?.toUpperCase()}</span>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="truncate font-semibold">{p.name}</h3>
+                          <p className="text-xs text-slate-500">{p.repo ?? "No repository connected"}</p>
+                        </div>
+                        {p.id === active?.id && <span className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">Current</span>}
+                      </div>
+                      <p className="mt-4 line-clamp-2 text-sm text-slate-600">{p.goal}</p>
+                      <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-slate-900 px-2.5 py-1 font-medium text-white">{p.stage}</span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">{s?.evidence ?? 0} evidence</span>
+                        {!!s?.openBlockers && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-700">{s.openBlockers} open blocker{s.openBlockers === 1 ? "" : "s"}</span>}
+                        {s?.slug && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700"><Globe size={12} /> Published</span>}
+                      </div>
+                      <button onClick={() => { setActive(p.id); router.push("/overview"); }}
+                        className="group mt-5 inline-flex items-center gap-2 self-start rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-600">
+                        Open <ArrowRight size={15} className="transition-transform group-hover:translate-x-1" />
+                      </button>
+                    </li>
+                  );
+                })}
+                <li>
+                  <Link href="/new" className="grid h-full min-h-[200px] place-items-center rounded-3xl border border-dashed border-slate-300 bg-white p-6 text-center transition-colors hover:border-brand-500 hover:bg-brand-50/40">
+                    <span>
+                      <span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-600"><Plus size={18} /></span>
+                      <span className="mt-3 block font-semibold">Add a project</span>
+                      <span className="mt-1 block text-sm text-slate-600">Start from scratch or import a GitHub repo</span>
+                    </span>
+                  </Link>
+                </li>
+              </ul>
+            )
+          )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <BlockersCard blockers={data.blockers} onAdd={addBlocker} onResolve={resolveBlocker} />
-        <Activity evidence={data.evidence} />
-      </div>
+          {tab === "capability" && (
+            <>
+              <Card>
+                <h2 className="font-semibold">How your skills are measured</h2>
+                <p className="mt-1 text-sm text-slate-600">Every skill starts as self-declared. As your projects back it up with real evidence, it moves up.</p>
+                <ol className="mt-4 flex flex-wrap gap-2" aria-label="Capability levels">
+                  {MARKS.map((m, i) => (
+                    <li key={m.l} className={`rounded-full px-3 py-1.5 text-xs font-medium ${i === 0 ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`}>{m.l} {m.t}</li>
+                  ))}
+                </ol>
+                                <p className="mt-4 rounded-xl bg-brand-50/60 p-3 text-sm text-slate-700">
+                  Your skills are measured against {evidenceTotal} evidence item{evidenceTotal === 1 ? "" : "s"}.{" "}
+                  <Link href="/capability" className="font-semibold text-brand-600 hover:underline">See the full breakdown</Link>
+                </p>
+              </Card>
+
+              <Card>
+                <h2 className="font-semibold">Your skills</h2>
+                {rec.skills.length === 0 ? <p className="mt-3 text-sm text-slate-500">No skills yet. Add one below.</p> : (
+                  <ul className="mt-4 space-y-2">
+                    {rec.skills.map((s) => (
+                      <li key={s.name} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 p-3">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.name}</span>
+                                                {(() => {
+                          const lvl = cap.results.find((c) => c.name === s.name)?.level ?? 0;
+                          return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${LEVEL_BADGE[lvl]}`}>L{lvl} {LEVEL_LABEL[lvl]}</span>;
+                        })()}
+                        <label className="sr-only" htmlFor={`lvl-${s.name}`}>{s.name} level</label>
+                        <select id={`lvl-${s.name}`} value={s.level} onChange={(e) => patch({ skills: rec.skills.map((k) => (k.name === s.name ? { ...k, level: e.target.value as SkillLevel } : k)) })}
+                          className={`rounded-full border-0 px-3 py-1 text-xs font-medium ${LEVEL_STYLE[s.level]}`}>
+                          {LEVELS.map((l) => <option key={l}>{l}</option>)}
+                        </select>
+                        <button onClick={() => patch({ skills: rec.skills.filter((k) => k.name !== s.name) })} aria-label={`Remove ${s.name}`} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><X size={15} /></button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <form onSubmit={addSkill} className="mt-4 flex flex-wrap gap-2">
+                  <input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder="Add a skill" aria-label="Skill name" maxLength={30} className={`${inputCls} min-w-[180px] flex-1`} />
+                  <select value={skillLevel} onChange={(e) => setSkillLevel(e.target.value as SkillLevel)} aria-label="Skill level" className={`${inputCls} !w-auto`}>
+                    {LEVELS.map((l) => <option key={l}>{l}</option>)}
+                  </select>
+                  <button type="submit" disabled={!skillName.trim()} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600 disabled:opacity-40"><Plus size={16} /> Add</button>
+                </form>
+              </Card>
+
+              <Card>
+                <div className="flex items-start gap-4">
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${rec.openToWork ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+                    {rec.openToWork ? <Globe size={18} /> : <EyeOff size={18} />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-semibold">Let employers find me</h2>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {rec.openToWork
+                        ? "You're visible. Employers can see your skills and only the evidence you've made public."
+                        : "You're hidden. Turn this on to be matched with real work. You always control which evidence is public."}
+                    </p>
+                  </div>
+                  <Switch on={rec.openToWork} onChange={() => patch({ openToWork: !rec.openToWork })} label="Let employers find me" />
+                </div>
+              </Card>
+            </>
+          )}
+        </m.div>
+      </AnimatePresence>
     </div>
   );
 }
-

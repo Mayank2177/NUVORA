@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Stage = Literal[
-    "Idea", "Problem solving", "Research", "Learn", "Practice", "Prototype", "Build",
+    "Think", "Idea", "Problem solving", "Research", "Learn", "Practice", "Prototype", "Build",
     "Validate", "Document", "Publish", "Portfolio", "Demonstrate", "Opportunity", "Contribution",
 ]
 EvidenceType = Literal[
@@ -38,6 +38,11 @@ class BlockerResolve(JourneyRequest):
 class TaskCreate(JourneyRequest):
     title: str = Field(min_length=1, max_length=300)
     stage: Stage
+
+
+class TaskUpdate(JourneyRequest):
+    title: str = Field(min_length=1, max_length=300)
+    done: bool | None = None
 
 
 class DecisionCreate(JourneyRequest):

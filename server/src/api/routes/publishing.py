@@ -4,19 +4,22 @@ import re
 import sqlite3
 import html
 import hashlib
+import logging
 from fastapi import APIRouter, HTTPException, Request, Depends, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from config import settings
-from storage.instance import storage
-from storage.utils import new_uuid, json_dumps, json_loads, utc_now_iso, slugify
-from storage.security import scan_content
-from api.routes.auth import require_user
-from api.concurrency import offload_database
-from api.routes.projects import public_repo
+from src.config import settings
+from src.storage.instance import storage
+from src.storage.utils import new_uuid, json_dumps, json_loads, utc_now_iso, slugify
+from src.storage.security import scan_content
+from src.api.routes.auth import require_user
+from src.api.concurrency import offload_database
+from src.api.routes.projects import public_repo
+from src.workers.queue import enqueue, redis_client
 
 router = APIRouter(tags=["publishing"])
+logger = logging.getLogger(__name__)
 
 # Request/Response Models
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -32,9 +35,9 @@ class Story(BaseModel):
 
 
 class _SlugBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     slug: str = Field(min_length=3, max_length=50)
-    include_blockers: bool = True
+    include_blockers: bool = Field(default=True, alias="includeBlockers")
 
     @field_validator("slug")
     @classmethod
@@ -215,7 +218,7 @@ def publish_project(project_id: str, request: PublishRequest, user: dict = Depen
         if len(snapshot_json.encode("utf-8")) > 1_000_000:
             raise HTTPException(status_code=413, detail="Published project is too large")
 
-        public_url = f"{settings.public_base_url.rstrip('/')}/public/{user['username']}/{request.slug}"
+        public_url = f"{settings.frontend_base_url.rstrip('/')}/p/{request.slug}"
         conn.execute(
             """
             INSERT INTO publications (id, project_id, slug, username, evidence_ids, payload,
@@ -237,6 +240,27 @@ def publish_project(project_id: str, request: PublishRequest, user: dict = Depen
         snapshot = storage.executemany_tx(transaction)
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="Slug already taken")
+    # Keep the synchronous scan above as the publication safety gate; workers
+    # also retain an asynchronous audit copy and refresh cached aggregates.
+    try:
+        queue = redis_client()
+        audit_parts = [(value, f"story/{key}") for key, value in request.story.model_dump().items()]
+        audit_parts.extend([
+            (snapshot["name"], "project/name"), (snapshot["goal"], "project/goal"),
+            (snapshot["users"], "project/users"), (snapshot["repo"] or "", "project/repo"),
+        ])
+        audit_parts.extend((e["text"], f"evidence:{e['id']}/text") for e in snapshot["evidence"])
+        audit_parts.extend((e["source"], f"evidence:{e['id']}/source") for e in snapshot["evidence"])
+        for blocker in snapshot["blockers"]:
+            audit_parts.extend([
+                (blocker["title"], f"blocker:{blocker['id']}/title"),
+                (blocker["solution"] or "", f"blocker:{blocker['id']}/solution"),
+            ])
+            audit_parts.extend((attempt, f"blocker:{blocker['id']}/attempt") for attempt in blocker["attempts"])
+        enqueue(queue, "secret_scan", {"parts": [{"text": text, "location": loc} for text, loc in audit_parts]}, owner_id=user["id"])
+        enqueue(queue, "analytics_aggregate", {}, owner_id=user["id"])
+    except Exception:
+        logger.exception("Could not queue publication audit jobs")
     return {"snapshot": snapshot}
 
 
@@ -317,11 +341,6 @@ def unpublish_project(project_id: str, user: dict = Depends(require_user)):
     storage.owned_project(project_id, user["id"])
     
     def transaction(conn):
-        published_rows = conn.execute(
-            "SELECT id FROM evidence WHERE project_id = ? AND publish = 1",
-            (project_id,),
-        ).fetchall()
-        published_ids = [row["id"] for row in published_rows]
         now = utc_now_iso()
         conn.execute(
             "DELETE FROM publications WHERE project_id = ?", (project_id,)
@@ -330,28 +349,6 @@ def unpublish_project(project_id: str, user: dict = Depends(require_user)):
             "UPDATE projects SET status = 'draft', updated_at = ? WHERE id = ?",
             (now, project_id),
         )
-        conn.execute(
-            "UPDATE evidence SET publish = 0, updated_at = ? WHERE project_id = ?",
-            (now, project_id),
-        )
-        if published_ids:
-            placeholders = ",".join("?" * len(published_ids))
-            updated_rows = conn.execute(
-                f"SELECT * FROM evidence WHERE id IN ({placeholders})",
-                tuple(published_ids),
-            ).fetchall()
-        else:
-            updated_rows = []
-        for updated in updated_rows:
-            storage.append_evidence_audit(
-                conn,
-                project_id=project_id,
-                evidence_id=updated["id"],
-                actor_id=user["id"],
-                action="update",
-                payload=dict(updated),
-            )
-
     storage.executemany_tx(transaction)
     
     return None
@@ -460,7 +457,7 @@ def public_page(username: str, slug: str, request: Request):
     return JSONResponse(payload, headers=cache_headers)
 
 
-@router.get("/api/public/{username}/{slug}")
+@router.get("/api/public/by-user/{username}/{slug}")
 @offload_database
 def public_page_json(username: str, slug: str, request: Request):
     """Get public project data as JSON."""
@@ -469,3 +466,184 @@ def public_page_json(username: str, slug: str, request: Request):
     if request.headers.get("if-none-match") == headers["ETag"]:
         return Response(status_code=304, headers=headers)
     return JSONResponse(payload, headers=headers)
+
+
+@router.get("/api/public/projects/{slug}")
+@offload_database
+def get_public_project_by_slug(slug: str):
+    """Get public project by slug."""
+    from fastapi import HTTPException
+    
+    # Look up project by slug in publications
+    pub = storage.fetchone(
+        "SELECT payload FROM publications WHERE slug = ? ORDER BY published_at DESC LIMIT 1", (slug,)
+    )
+    payload = json_loads(pub["payload"], None) if pub else None
+    if not isinstance(payload, dict) or "project_id" not in payload:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return {"project": payload}
+
+
+@router.get("/p/{slug}")
+@offload_database
+def get_public_project_by_slug_short(slug: str):
+    """Get public project by slug (short URL)."""
+    from fastapi import HTTPException
+    
+    # Look up project by slug in publications
+    pub = storage.fetchone(
+        "SELECT payload FROM publications WHERE slug = ? ORDER BY published_at DESC LIMIT 1", (slug,)
+    )
+    payload = json_loads(pub["payload"], None) if pub else None
+    if not isinstance(payload, dict) or "project_id" not in payload:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return {"project": payload}
+
+
+@router.get("/api/public/users/{username}")
+@offload_database
+def get_public_user_by_username(username: str):
+    """Get public user by username."""
+    from fastapi import HTTPException
+    
+    # Look up user by username
+    user = storage.fetchone(
+        "SELECT id, name, username, avatar_url, created_at, is_public FROM users WHERE username = ? AND deleted_at IS NULL",
+        (username,)
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user["is_public"]:
+        raise HTTPException(status_code=404, detail="Profile is private")
+    
+    # Get public projects for this user
+    projects = storage.fetchall(
+        """
+        SELECT p.id, p.name, p.slug, p.summary, p.created_at
+        FROM projects p
+        JOIN publications pub ON pub.project_id = p.id
+        WHERE p.user_id = ? AND p.deleted_at IS NULL AND p.status = 'published'
+        ORDER BY pub.published_at DESC
+        """,
+        (user["id"],)
+    )
+    
+    return {
+        "user": {
+            "id": user["id"],
+            "name": user["name"],
+            "username": user["username"],
+            "avatarUrl": user["avatar_url"] if "avatar_url" in user.keys() else None,
+            "createdAt": user["created_at"],
+        },
+        "projects": [
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "slug": p["slug"],
+                "summary": p["summary"],
+                "createdAt": p["created_at"],
+            }
+            for p in projects
+        ],
+    }
+
+
+@router.get("/u/{username}")
+@offload_database
+def get_public_user_by_username_short(username: str):
+    """Get public user by username (short URL)."""
+    from fastapi import HTTPException
+    
+    # Look up user by username
+    user = storage.fetchone(
+        "SELECT id, name, username, avatar_url, created_at, is_public FROM users WHERE username = ? AND deleted_at IS NULL",
+        (username,)
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user["is_public"]:
+        raise HTTPException(status_code=404, detail="Profile is private")
+    
+    # Get public projects for this user
+    projects = storage.fetchall(
+        """
+        SELECT p.id, p.name, p.slug, p.summary, p.created_at
+        FROM projects p
+        JOIN publications pub ON pub.project_id = p.id
+        WHERE p.user_id = ? AND p.deleted_at IS NULL AND p.status = 'published'
+        ORDER BY pub.published_at DESC
+        """,
+        (user["id"],)
+    )
+    
+    return {
+        "user": {
+            "id": user["id"],
+            "name": user["name"],
+            "username": user["username"],
+            "avatarUrl": user["avatar_url"] if "avatar_url" in user.keys() else None,
+            "createdAt": user["created_at"],
+        },
+        "projects": [
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "slug": p["slug"],
+                "summary": p["summary"],
+                "createdAt": p["created_at"],
+            }
+            for p in projects
+        ],
+    }
+
+
+@router.get("/api/public/profile/{username}")
+@offload_database
+def get_public_profile(username: str):
+    """Get public profile (alias for get_public_user_by_username)."""
+    from fastapi import HTTPException
+    
+    # Look up user by username
+    user = storage.fetchone(
+        "SELECT id, name, username, avatar_url, created_at, is_public FROM users WHERE username = ? AND deleted_at IS NULL",
+        (username,)
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user["is_public"]:
+        raise HTTPException(status_code=404, detail="Profile is private")
+    
+    # Get public projects for this user
+    projects = storage.fetchall(
+        """
+        SELECT p.id, p.name, p.slug, p.summary, p.created_at
+        FROM projects p
+        JOIN publications pub ON pub.project_id = p.id
+        WHERE p.user_id = ? AND p.deleted_at IS NULL AND p.status = 'published'
+        ORDER BY pub.published_at DESC
+        """,
+        (user["id"],)
+    )
+    
+    return {
+        "user": {
+            "id": user["id"],
+            "name": user["name"],
+            "username": user["username"],
+            "avatarUrl": user["avatar_url"] if "avatar_url" in user.keys() else None,
+            "createdAt": user["created_at"],
+        },
+        "projects": [
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "slug": p["slug"],
+                "summary": p["summary"],
+                "createdAt": p["created_at"],
+            }
+            for p in projects
+        ],
+    }

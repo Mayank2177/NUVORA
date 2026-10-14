@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable, ParamSpec, TypeVar
 
 from starlette.concurrency import run_in_threadpool
 
-from config import settings
+from src.config import settings
 
 T = TypeVar("T")
 P = ParamSpec("P")

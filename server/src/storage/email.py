@@ -1,6 +1,7 @@
 """Email delivery utilities for NUVORA."""
 import logging
 import smtplib
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
@@ -83,29 +84,8 @@ class SMTPEmailProvider(EmailProvider):
             return False
 
 
-class LogEmailProvider(EmailProvider):
-    """Development email provider that logs emails instead of sending."""
-    
-    def send_email(
-        self,
-        to_email: str,
-        subject: str,
-        text_body: str,
-        html_body: Optional[str] = None,
-    ) -> bool:
-        """Log email instead of sending (for development)."""
-        logger.warning("=" * 80)
-        logger.warning("EMAIL (Development Mode - Not Actually Sent)")
-        logger.warning(f"To: {to_email}")
-        logger.warning(f"Subject: {subject}")
-        logger.warning("-" * 80)
-        logger.warning(text_body)
-        logger.warning("=" * 80)
-        return True
-
-
 class DisabledEmailProvider(EmailProvider):
-    """Reject delivery when SMTP is absent outside explicit development."""
+    """Reject delivery when SMTP is not configured."""
 
     def send_email(
         self,
@@ -125,14 +105,8 @@ def get_email_provider(
     smtp_password: Optional[str] = None,
     from_email: Optional[str] = None,
     from_name: str = "NUVORA",
-    allow_log_provider: bool = False,
 ) -> EmailProvider:
-    """
-    Get an email provider based on configuration.
-    
-    If SMTP credentials are provided, returns SMTPEmailProvider.
-    Otherwise, returns LogEmailProvider for development.
-    """
+    """Return SMTP delivery only when all required settings are present."""
     if all([smtp_host, smtp_port, smtp_user, smtp_password, from_email]):
         return SMTPEmailProvider(
             smtp_host=smtp_host,
@@ -143,9 +117,6 @@ def get_email_provider(
             from_name=from_name,
             use_tls=True,
         )
-    elif allow_log_provider:
-        logger.warning("Email provider not configured. Using log-based provider for development.")
-        return LogEmailProvider()
     return DisabledEmailProvider()
 
 
@@ -177,6 +148,7 @@ Best,
 The NUVORA Team
 """.strip()
     
+    safe_url = escape(reset_url, quote=True)
     html_body = f"""
 <!DOCTYPE html>
 <html>
@@ -194,8 +166,8 @@ The NUVORA Team
         <h2>Reset Your Password</h2>
         <p>You requested to reset your password for your NUVORA account.</p>
         <p>Click the button below to reset your password:</p>
-        <a href="{reset_url}" class="button">Reset Password</a>
-        <p><small>Or copy and paste this link into your browser:<br>{reset_url}</small></p>
+        <a href="{safe_url}" class="button">Reset Password</a>
+        <p><small>Or copy and paste this link into your browser:<br>{safe_url}</small></p>
         <p>This link will expire in {ttl_minutes} minutes.</p>
         <p>If you didn't request this, you can safely ignore this email.</p>
         <div class="footer">

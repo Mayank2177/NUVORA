@@ -1,7 +1,9 @@
-/* eslint-disable @next/next/no-img-element */
+import Image from "next/image";
 import { GitBranch, Users } from "lucide-react";
-import { PROV_STYLE, TYPE_ICON, type Provenance } from "@/lib/data";
-import { STORY_LABELS, type Snapshot, type Story } from "@/lib/publish";
+import { PROV_STYLE, TYPE_ICON } from "@/lib/evidence-ui";
+import type { Provenance } from "@/lib/data";
+import { STORY_LABELS } from "@/lib/publish-ui";
+import type { Snapshot, Story } from "@/lib/publish";
 
 const PROV_BAR: Record<Provenance, string> = {
   Human: "bg-emerald-500",
@@ -30,7 +32,7 @@ export function ProjectStory({ snap }: { snap: Snapshot }) {
   return (
     <article>
       <div className="relative h-48 overflow-hidden sm:h-60">
-        <img src="https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1400&q=80" alt="" className="h-full w-full object-cover" />
+        <Image src="/images/marketing/workspace.webp" alt="" fill sizes="(min-width: 1280px) 1152px, calc(100vw - 2rem)" className="object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-white via-white/50 to-transparent" />
       </div>
 

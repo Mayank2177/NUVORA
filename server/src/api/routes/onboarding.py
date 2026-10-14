@@ -24,7 +24,7 @@ class DeveloperProfileCreate(BaseModel):
     goals: List[str] = Field(default_factory=list, max_length=10)
     interests: List[str] = Field(default_factory=list, max_length=20)
     skills: List[SkillInput] = Field(default_factory=list, max_length=30)
-    githubHandle: str = Field(default="", max_length=39, pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})?$")
+    githubHandle: str = Field(default="", max_length=39, pattern=r"^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})?)?$")
     openToWork: bool = False
 
 
@@ -33,7 +33,7 @@ class DeveloperProfileUpdate(BaseModel):
     goals: Optional[List[str]] = Field(default=None, max_length=10)
     interests: Optional[List[str]] = Field(default=None, max_length=20)
     skills: Optional[List[SkillInput]] = Field(default=None, max_length=30)
-    githubHandle: Optional[str] = Field(default=None, max_length=39, pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})?$")
+    githubHandle: Optional[str] = Field(default=None, max_length=39, pattern=r"^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})?)?$")
     openToWork: Optional[bool] = None
 
 

@@ -106,23 +106,6 @@ The server includes an `.env.example` file for required configuration values suc
 
 Make sure to configure the environment before running the backend in a local or deployment environment.
 
-## Development notes
-
-This project combines a TypeScript-heavy frontend with a Python-based backend, making it suitable for modern web application workflows that need both interactive UI experiences and API-driven business logic.
-
-## License
-
-This project includes a license file in the client directory and is intended to be used under the repository's terms unless otherwise specified.
-
-## Contributing
-
-Contributions are welcome. For local changes:
-
-1. Fork the repo
-2. Create a feature branch
-3. Make your updates
-4. Run validation checks relevant to the frontend or backend
-5. Open a pull request with a clear summary
 
 ## More information
 
